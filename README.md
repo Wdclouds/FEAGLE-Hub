@@ -48,6 +48,13 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 文件 SHA-256 和签名证书指纹必须经过独立验证后，才能发布到工具清单。目前已经
 从验证设备取得参考指纹，但尚未发布与其完全匹配的下载来源。
 
+当前记录了一个第三方候选页面：
+
+- [APKMirror：WeChat 8.0.70 / 3060 / arm64-v8a](https://www.apkmirror.com/apk/wechat/wechat/wechat-8-0-70-release/wechat-8-0-70-android-apk-download/)
+
+该页面公开的文件大小、文件哈希和签名证书指纹与参考设备一致，但安装助手尚未
+独立下载并复验文件。因此它不是“微信官方下载”，也还不是自动安装源。
+
 详见[微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)。
 
 ## Windows 检查入口

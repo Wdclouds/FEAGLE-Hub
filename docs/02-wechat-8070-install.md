@@ -29,6 +29,22 @@ Android Agent 当前固定适配微信 `8.0.70`，但历史版本 APK 可能来�
 
 只有 `source-verified` 才表示项目已经发布可供新手直接使用的下载源。
 
+### 当前第三方候选页面
+
+[APKMirror：WeChat 8.0.70 / 3060 / arm64-v8a](https://www.apkmirror.com/apk/wechat/wechat/wechat-8-0-70-release/wechat-8-0-70-android-apk-download/)
+
+截至 `2026-07-31`，该页面报告的以下信息与参考设备完全一致：
+
+- 文件大小：`255119524` bytes。
+- 文件 SHA-256：
+  `65808aa07d48d2ee2079ee4b1abfda3ca318482259f19a4d942bee0372f61079`。
+- 签名证书 SHA-256：
+  `0fe4ff85c215918396dadc7cd8ce6963339af33d37751a56e54c7206b63a3c7c`。
+- 签名主体为 Tencent。
+
+APKMirror 是第三方归档站，不是微信官方渠道。页面报告值一致仍不能替代安装助手
+对实际下载文件的再次校验，因此清单继续保持 `reference-verified`。
+
 ## 2. 正确顺序
 
 ```text
@@ -66,7 +82,7 @@ Android Agent 当前固定适配微信 `8.0.70`，但历史版本 APK 可能来�
 
 如果后续确实需要在平板浏览器中下载：
 
-1. 只使用校验清单中已经标记为 `verified` 的来源。
+1. 打开校验清单记录的候选页面，不要使用转载页面或缩短链接。
 2. 下载后先不要打开微信，也不要输入账号。
 3. 通过 USB 连接 Windows 电脑。
 4. 运行：

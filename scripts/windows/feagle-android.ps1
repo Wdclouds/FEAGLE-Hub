@@ -110,6 +110,29 @@ function Test-Manifest {
         }
     }
 
+    foreach ($candidate in @($manifest.candidateSources)) {
+        if ([string]$candidate.pageUrl -notmatch "^https://") {
+            $errors.Add("候选来源页面必须使用 https://")
+        }
+        if ($candidate.metadataMatchesReference -eq $true) {
+            if ([string]$candidate.reportedFileSha256 -ne [string]$manifest.fileSha256) {
+                $errors.Add("候选来源报告的文件 SHA-256 与参考值不一致")
+            }
+            if (
+                [string]$candidate.reportedSigningCertificateSha256 -ne
+                [string]$manifest.signingCertificateSha256
+            ) {
+                $errors.Add("候选来源报告的签名证书 SHA-256 与参考值不一致")
+            }
+            if (
+                [long]$candidate.reportedArtifactSizeBytes -ne
+                [long]$manifest.artifactSizeBytes
+            ) {
+                $errors.Add("候选来源报告的文件大小与参考值不一致")
+            }
+        }
+    }
+
     if ($errors.Count -gt 0) {
         if (-not $Quiet) {
             foreach ($item in $errors) {
@@ -342,6 +365,15 @@ function Show-SourceStatus {
     elseif ($manifest.status -eq "reference-verified") {
         Write-Pass "参考文件哈希和签名证书已经确认"
         Write-Warn "尚未发布与参考指纹完全匹配的下载链接"
+        foreach ($candidate in @($manifest.candidateSources)) {
+            Write-Host "  候选页面：$($candidate.name)"
+            if ($candidate.metadataMatchesReference -eq $true) {
+                Write-Pass "候选页面报告的元数据与参考指纹一致"
+            }
+            if ($candidate.downloadVerifiedLocally -ne $true) {
+                Write-Warn "候选文件尚未由安装助手独立下载复验"
+            }
+        }
     }
     else {
         Write-Warn "尚未发布下载链接"
