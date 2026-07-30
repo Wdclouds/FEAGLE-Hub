@@ -45,7 +45,8 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 - [Google Play 上的微信](https://play.google.com/store/apps/details?id=com.tencent.mm)
 
 这些官方入口不保证仍提供项目所需的历史版本 `8.0.70`。历史安装包的下载来源、
-文件 SHA-256 和签名证书指纹必须经过独立验证后，才能发布到工具清单。
+文件 SHA-256 和签名证书指纹必须经过独立验证后，才能发布到工具清单。目前已经
+从验证设备取得参考指纹，但尚未发布与其完全匹配的下载来源。
 
 详见[微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)。
 
@@ -100,7 +101,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - [x] 仓库骨架与安全边界
 - [x] Windows ADB/设备/版本检查
 - [x] 微信下载源校验清单
-- [ ] 从已验证设备确认文件哈希和签名证书指纹
+- [x] 从已验证设备确认文件哈希和签名证书指纹
 - [ ] 发布经过验证的下载来源
 - [ ] 迁入 Android Agent 与 Hook 适配器
 - [ ] Windows 自动安装与模块状态检查

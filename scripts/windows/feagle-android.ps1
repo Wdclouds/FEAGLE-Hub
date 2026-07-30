@@ -57,21 +57,26 @@ function Test-Manifest {
     if ($manifest.versionName -ne "8.0.70") {
         $errors.Add("versionName 必须为 8.0.70")
     }
-    if ($manifest.status -notin @("metadata-pending", "verified")) {
-        $errors.Add("status 只能是 metadata-pending 或 verified")
+    if ($manifest.status -notin @(
+        "metadata-pending",
+        "reference-verified",
+        "source-verified"
+    )) {
+        $errors.Add(
+            "status 只能是 metadata-pending、reference-verified 或 source-verified"
+        )
     }
 
-    $verifiedFields = @(
-        "downloadUrl",
+    $fingerprintFields = @(
         "fileSha256",
         "signingCertificateSha256",
         "verifiedAt"
     )
 
-    if ($manifest.status -eq "verified") {
-        foreach ($field in $verifiedFields) {
+    if ($manifest.status -in @("reference-verified", "source-verified")) {
+        foreach ($field in $fingerprintFields) {
             if ([string]::IsNullOrWhiteSpace([string]$manifest.$field)) {
-                $errors.Add("verified 状态缺少 $field")
+                $errors.Add("$($manifest.status) 状态缺少 $field")
             }
         }
         if ([string]$manifest.fileSha256 -notmatch "^[a-fA-F0-9]{64}$") {
@@ -80,11 +85,24 @@ function Test-Manifest {
         if ([string]$manifest.signingCertificateSha256 -notmatch "^[a-fA-F0-9]{64}$") {
             $errors.Add("signingCertificateSha256 必须是 64 位十六进制")
         }
+    }
+
+    if ($manifest.status -eq "source-verified") {
+        if ([string]::IsNullOrWhiteSpace([string]$manifest.downloadUrl)) {
+            $errors.Add("source-verified 状态缺少 downloadUrl")
+        }
         if ([string]$manifest.downloadUrl -notmatch "^https://") {
-            $errors.Add("verified 下载地址必须使用 https://")
+            $errors.Add("source-verified 下载地址必须使用 https://")
         }
     }
-    else {
+
+    if ($manifest.status -eq "reference-verified") {
+        if (-not [string]::IsNullOrWhiteSpace([string]$manifest.downloadUrl)) {
+            $errors.Add("reference-verified 状态不得提前发布 downloadUrl")
+        }
+    }
+
+    if ($manifest.status -eq "metadata-pending") {
         foreach ($field in @("downloadUrl", "fileSha256", "signingCertificateSha256")) {
             if (-not [string]::IsNullOrWhiteSpace([string]$manifest.$field)) {
                 $errors.Add("metadata-pending 状态不得提前发布 $field")
@@ -294,13 +312,14 @@ function Invoke-WechatVerification {
         }
         Write-Pass "版本：$($wechat.VersionName)"
 
-        if ($manifest.status -ne "verified") {
+        if ($manifest.status -eq "metadata-pending") {
             Write-Warn "签名证书与文件哈希尚未发布"
             Write-Warn "现在不要依据本工具结论登录微信账号"
             return $false
         }
 
-        Write-Warn "签名比对功能将在发布可信元数据后启用"
+        Write-Pass "参考文件哈希与签名证书已经发布"
+        Write-Warn "自动签名比对功能尚未完成，现在仍不能给出安全登录结论"
         return $false
     }
     catch {
@@ -317,8 +336,12 @@ function Show-SourceStatus {
     Write-Host "  版本：$($manifest.versionName)"
     Write-Host "  状态：$($manifest.status)"
 
-    if ($manifest.status -eq "verified") {
+    if ($manifest.status -eq "source-verified") {
         Write-Pass "下载源、文件哈希和签名证书已经发布"
+    }
+    elseif ($manifest.status -eq "reference-verified") {
+        Write-Pass "参考文件哈希和签名证书已经确认"
+        Write-Warn "尚未发布与参考指纹完全匹配的下载链接"
     }
     else {
         Write-Warn "尚未发布下载链接"
