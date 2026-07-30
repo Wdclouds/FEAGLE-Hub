@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "status": "metadata-pending",
+  "packageName": "com.tencent.mm",
+  "versionName": "8.0.70",
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "downloadUrl": null,
+  "fileSha256": null,
+  "signingCertificateSha256": null,
+  "verifiedAt": null,
+  "verifiedDeviceProfile": {
+    "model": "SM-X200",
+    "androidVersion": "14"
+  },
+  "notes": [
+    "Do not publish a download URL until file and signer fingerprints are verified.",
+    "The repository does not host or redistribute WeChat APK files."
+  ]
+}

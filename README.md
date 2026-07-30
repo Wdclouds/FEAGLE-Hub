@@ -1,1 +1,114 @@
-# FEAGLEwxbot-android-kit
+# FEAGLEwxbot Android Kit
+
+FEAGLEwxbot Android Kit 是
+[FEAGLEwxbot Bridge](https://github.com/Wdclouds/FEAGLEwxbot-bridge)
+的 Android 设备准备与诊断工具。
+
+它面向零基础用户，目标是把下面的过程变成可检查、可恢复的逐步向导：
+
+```text
+ADB → 设备与 Root 检查 → 微信版本与签名检查
+    → Agent 安装 → Hook 状态检查 → Bridge 配对 → 全链路测试
+```
+
+> [!IMPORTANT]
+> 当前仓库处于第一阶段，只包含安全检查框架和新手文档。Android Agent、自动配对
+> 和完整安装流程将在后续版本迁入。现在不要把它当作已经完成的一键安装器。
+
+## 当前支持基线
+
+已经验证的首期设备组合：
+
+| 项目 | 基线 |
+| --- | --- |
+| 设备 | Samsung Galaxy Tab A8 `SM-X200` |
+| Android | 14 |
+| Root 管理 | Magisk 30.7 |
+| 注入环境 | Zygisk + LSPosed/Vector |
+| 微信 | `8.0.70` |
+| 电脑端 | Windows 10/11 |
+
+其他设备可以参与后续适配，但当前应显示为“未经验证”，不能向新手承诺兼容。
+
+## 微信 APK 安全规则
+
+本仓库：
+
+- 不托管或重新分发微信 APK。
+- 不把第三方下载站写成“微信官方下载”。
+- 不在哈希与签名未确认时提供自动下载。
+- 不允许工具在验证完成前引导用户登录账号。
+
+微信官方当前版本入口：
+
+- [腾讯微信产品页面](https://www.tencent.com/zh-cn/products/weixin-wechat/)
+- [Google Play 上的微信](https://play.google.com/store/apps/details?id=com.tencent.mm)
+
+这些官方入口不保证仍提供项目所需的历史版本 `8.0.70`。历史安装包的下载来源、
+文件 SHA-256 和签名证书指纹必须经过独立验证后，才能发布到工具清单。
+
+详见[微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)。
+
+## Windows 检查入口
+
+连接已经由设备所有者开启 USB 调试的 Android 设备，然后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
+```
+
+也可以直接执行子命令：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 doctor
+.\scripts\windows\feagle-android.ps1 verify-wechat
+.\scripts\windows\feagle-android.ps1 source-status
+```
+
+如果 `adb.exe` 不在 `PATH`，可以指定路径：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 doctor `
+  -AdbPath C:\path\to\platform-tools\adb.exe
+```
+
+当前助手能够：
+
+- 查找 ADB。
+- 检查设备是否连接并授权。
+- 显示设备型号、Android 版本和 CPU ABI。
+- 检查 `su` 是否可用。
+- 检查 `com.tencent.mm` 是否安装。
+- 检查微信版本是否为 `8.0.70`。
+- 显示下载源与哈希是否已经发布。
+
+当前助手不会：
+
+- 解锁 Bootloader 或替用户 Root。
+- 自动安装未经验证的微信 APK。
+- 静默开启 Zygisk、模块作用域或系统敏感权限。
+- 读取微信账号、联系人或消息正文。
+
+## 文档
+
+1. [设备与 Root 前置条件](./docs/01-device-requirements.md)
+2. [微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)
+3. [安全策略](./SECURITY.md)
+
+## 路线图
+
+- [x] 仓库骨架与安全边界
+- [x] Windows ADB/设备/版本检查
+- [x] 微信下载源校验清单
+- [ ] 从已验证设备确认文件哈希和签名证书指纹
+- [ ] 发布经过验证的下载来源
+- [ ] 迁入 Android Agent 与 Hook 适配器
+- [ ] Windows 自动安装与模块状态检查
+- [ ] Bridge 一次性配对码
+- [ ] 分段全链路测试
+- [ ] 脱敏诊断包
+
+## 许可证
+
+仓库目前尚未选择开源许可证。在许可证确定前，请不要假定已经获得再分发或商业
+使用授权。微信及其安装包不属于本项目。
