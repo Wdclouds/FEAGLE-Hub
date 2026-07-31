@@ -15,3 +15,13 @@ jobs:
       - name: Validate WeChat metadata guard
         shell: pwsh
         run: ./scripts/windows/feagle-android.ps1 validate-manifest
+      - name: Reject an APK that does not match the reference
+        shell: pwsh
+        run: |
+          Set-Content -LiteralPath ./invalid.apk -Value "not-an-apk" -NoNewline
+          ./scripts/windows/feagle-android.ps1 verify-apk -ApkPath ./invalid.apk
+          if ($LASTEXITCODE -eq 0) {
+            throw "Invalid APK was unexpectedly accepted"
+          }
+          Write-Host "Invalid APK rejected as expected"
+          exit 0

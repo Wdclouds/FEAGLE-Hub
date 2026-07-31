@@ -69,6 +69,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 
 ```powershell
 .\scripts\windows\feagle-android.ps1 doctor
+.\scripts\windows\feagle-android.ps1 verify-apk `
+  -ApkPath C:\Downloads\wechat-8.0.70.apk
+.\scripts\windows\feagle-android.ps1 install-wechat `
+  -ApkPath C:\Downloads\wechat-8.0.70.apk `
+  -ConfirmInstall
 .\scripts\windows\feagle-android.ps1 verify-wechat
 .\scripts\windows\feagle-android.ps1 source-status
 ```
@@ -83,11 +88,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 当前助手能够：
 
 - 查找 ADB。
+- 查找 JDK 和 Android SDK Build Tools。
 - 检查设备是否连接并授权。
 - 显示设备型号、Android 版本和 CPU ABI。
 - 检查 `su` 是否可用。
 - 检查 `com.tencent.mm` 是否安装。
 - 检查微信版本是否为 `8.0.70`。
+- 验证本地 APK 的大小、文件 SHA-256、腾讯签名、包名、版本和 ABI。
+- 只在验证全部通过并显式确认后执行 ADB 安装。
+- 遇到设备中的其他微信版本时停止，不自动卸载、降级或清数据。
+- 从设备临时读取已安装 APK，完成后立即删除临时副本。
 - 显示下载源与哈希是否已经发布。
 
 当前助手不会：
@@ -109,9 +119,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - [x] Windows ADB/设备/版本检查
 - [x] 微信下载源校验清单
 - [x] 从已验证设备确认文件哈希和签名证书指纹
+- [x] Windows 本地 APK 验证与受控安装
 - [ ] 发布经过验证的下载来源
 - [ ] 迁入 Android Agent 与 Hook 适配器
-- [ ] Windows 自动安装与模块状态检查
+- [ ] Windows 工具依赖自动准备与模块状态检查
 - [ ] Bridge 一次性配对码
 - [ ] 分段全链路测试
 - [ ] 脱敏诊断包

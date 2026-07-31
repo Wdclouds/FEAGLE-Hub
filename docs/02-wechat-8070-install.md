@@ -66,17 +66,40 @@ APKMirror 是第三方归档站，不是微信官方渠道。页面报告值一�
 
 ## 3. 推荐方式：由 Windows 助手处理
 
-最终版本的配置助手会：
+当前配置助手会：
 
-1. 从校验清单读取经过验证的 URL。
-2. 下载到本机临时目录。
-3. 计算文件 SHA-256。
-4. 使用 Android SDK `apksigner` 检查签名证书。
-5. 检查包名、版本和 ABI。
-6. 完全匹配后才允许执行 ADB 安装。
-7. 安装后再次读取设备中的实际版本。
+1. 读取用户已经下载到电脑的 APK。
+2. 在解析 APK 前先检查文件大小和 SHA-256。
+3. 使用 Android SDK `apksigner` 检查签名证书。
+4. 使用 `aapt2` 检查包名、版本和 ABI。
+5. 完全匹配后才允许执行 ADB 安装。
+6. 安装需要用户显式添加 `-ConfirmInstall`。
+7. 安装后再次从设备读取 APK 并完成同样的指纹检查。
 
-只要 URL、哈希或签名任意一项变化，助手就停止，不以“忽略警告”继续。
+只要文件大小、哈希、签名、包名、版本或 ABI 任意一项变化，助手就停止，不提供
+“忽略警告并继续”。
+
+需要 Windows PowerShell 5.1、JDK 17 和 Android SDK Build Tools。尚未实现工具依赖
+自动下载时，可以显式指定路径：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 verify-apk `
+  -ApkPath C:\Downloads\wechat-8.0.70.apk `
+  -AndroidSdkPath C:\Android\Sdk `
+  -JavaHome C:\Java\jdk-17
+```
+
+验证通过后安装：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 install-wechat `
+  -ApkPath C:\Downloads\wechat-8.0.70.apk `
+  -AndroidSdkPath C:\Android\Sdk `
+  -JavaHome C:\Java\jdk-17 `
+  -ConfirmInstall
+```
+
+如果设备已经安装其他微信版本，助手会停止。它不会自动卸载、降级或清除用户数据。
 
 ## 4. 备用方式：用户在平板手动下载
 
@@ -88,13 +111,21 @@ APKMirror 是第三方归档站，不是微信官方渠道。页面报告值一�
 4. 运行：
 
    ```powershell
+   .\scripts\windows\feagle-android.ps1 verify-apk `
+     -ApkPath C:\Downloads\wechat-8.0.70.apk
+   ```
+
+5. 只有工具同时确认文件、版本和签名后，才执行安装。
+6. 安装后运行：
+
+   ```powershell
    .\scripts\windows\feagle-android.ps1 verify-wechat
    ```
 
-5. 只有工具同时确认版本和签名后，才进入登录步骤。
+7. 已安装包再次通过完整检查后，才进入登录步骤。
 
-当前工具已经记录参考签名元数据，但 Windows 助手的自动签名比对尚未完成，因此
-仍不能给出“可以安全登录”的最终结论。
+`verify-wechat` 会把设备中的 APK 拉取到随机临时目录，校验完成后立即删除，不上传
+或保留 APK，也不读取微信账号和消息数据。
 
 ## 5. 登录后的确认
 
