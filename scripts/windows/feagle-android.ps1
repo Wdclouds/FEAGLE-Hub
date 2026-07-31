@@ -3,12 +3,14 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet(
         "menu",
+        "bootstrap-tools",
         "doctor",
         "verify-apk",
         "install-wechat",
         "verify-wechat",
         "source-status",
-        "validate-manifest"
+        "validate-manifest",
+        "validate-toolchain"
     )]
     [string]$Command = "menu",
 
@@ -20,12 +22,18 @@ param(
 
     [string]$JavaHome,
 
-    [switch]$ConfirmInstall
+    [switch]$ConfirmInstall,
+
+    [switch]$AcceptAndroidSdkLicense,
+
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $ManifestPath = Join-Path $ProjectRoot "checks\wechat-8.0.70.json"
+$ToolchainManifestPath = Join-Path $ProjectRoot "checks\windows-toolchain.json"
+$ToolsRoot = Join-Path $ProjectRoot ".tools"
 $script:AdbExecutable = $null
 $script:ApkSignerExecutable = $null
 $script:Aapt2Executable = $null
@@ -59,6 +67,77 @@ function Get-WechatManifest {
 
     return Get-Content -Raw -Encoding UTF8 -LiteralPath $ManifestPath |
         ConvertFrom-Json
+}
+
+function Get-ToolchainManifest {
+    if (-not (Test-Path -LiteralPath $ToolchainManifestPath)) {
+        throw "找不到 Windows 工具链清单：$ToolchainManifestPath"
+    }
+
+    return Get-Content -Raw -Encoding UTF8 -LiteralPath $ToolchainManifestPath |
+        ConvertFrom-Json
+}
+
+function Test-ToolchainManifest {
+    param([switch]$Quiet)
+
+    $manifest = Get-ToolchainManifest
+    $errors = [System.Collections.Generic.List[string]]::new()
+
+    if ($manifest.schemaVersion -ne 1) {
+        $errors.Add("工具链 schemaVersion 必须为 1")
+    }
+    if ($manifest.platform -ne "windows-x64") {
+        $errors.Add("当前只支持 windows-x64 工具链")
+    }
+
+    foreach ($artifact in @(
+        $manifest.java,
+        $manifest.androidCommandLineTools
+    )) {
+        if ([string]$artifact.downloadUrl -notmatch "^https://") {
+            $errors.Add("$($artifact.fileName) 必须使用 HTTPS 下载")
+        }
+        if ([string]$artifact.sha256 -notmatch "^[a-fA-F0-9]{64}$") {
+            $errors.Add("$($artifact.fileName) 缺少有效 SHA-256")
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$artifact.fileName)) {
+            $errors.Add("工具链文件名不能为空")
+        }
+    }
+
+    $javaHost = ([uri]$manifest.java.downloadUrl).Host
+    if ($javaHost -notin @("aka.ms", "download.visualstudio.microsoft.com")) {
+        $errors.Add("JDK 下载地址必须属于微软官方域名")
+    }
+    if (
+        ([uri]$manifest.androidCommandLineTools.downloadUrl).Host -ne
+        "dl.google.com"
+    ) {
+        $errors.Add("Android 命令行工具必须从 dl.google.com 下载")
+    }
+
+    $packages = @($manifest.androidSdk.packages)
+    if ("platform-tools" -notin $packages) {
+        $errors.Add("工具链必须包含 platform-tools")
+    }
+    if ("build-tools;34.0.0" -notin $packages) {
+        $errors.Add("工具链必须固定 Android Build Tools 34.0.0")
+    }
+
+    if ($errors.Count -gt 0) {
+        if (-not $Quiet) {
+            foreach ($item in $errors) {
+                Write-Fail $item
+            }
+        }
+        return $false
+    }
+
+    if (-not $Quiet) {
+        Write-Pass "Windows 工具链清单结构有效"
+    }
+    return $true
 }
 
 function Test-Manifest {
@@ -167,6 +246,323 @@ function Test-Manifest {
     return $true
 }
 
+function Get-VerifiedToolArchive {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Artifact
+    )
+
+    $downloadDirectory = Join-Path $ToolsRoot "downloads"
+    if (-not (Test-Path -LiteralPath $downloadDirectory)) {
+        New-Item -ItemType Directory -Path $downloadDirectory | Out-Null
+    }
+
+    $archivePath = Join-Path $downloadDirectory ([string]$Artifact.fileName)
+    if (Test-Path -LiteralPath $archivePath -PathType Leaf) {
+        $existingHash = (
+            Get-FileHash -LiteralPath $archivePath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($existingHash -ne ([string]$Artifact.sha256).ToLowerInvariant()) {
+            throw (
+                "缓存文件校验失败：$archivePath。为避免覆盖未知文件，" +
+                "请手动删除后重试。"
+            )
+        }
+        Write-Pass "复用已校验下载：$($Artifact.fileName)"
+        return $archivePath
+    }
+
+    $partialPath = Join-Path $downloadDirectory (
+        ".$($Artifact.fileName)." + [guid]::NewGuid().ToString("N") + ".tmp"
+    )
+    $previousProgress = $ProgressPreference
+    try {
+        $ProgressPreference = "SilentlyContinue"
+        [Net.ServicePointManager]::SecurityProtocol = (
+            [Net.ServicePointManager]::SecurityProtocol -bor
+            [Net.SecurityProtocolType]::Tls12
+        )
+        Write-Host "  正在从官方地址下载 $($Artifact.fileName)..."
+        Invoke-WebRequest -UseBasicParsing `
+            -Uri ([string]$Artifact.downloadUrl) `
+            -OutFile $partialPath
+
+        $actualHash = (
+            Get-FileHash -LiteralPath $partialPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if ($actualHash -ne ([string]$Artifact.sha256).ToLowerInvariant()) {
+            throw "下载文件 SHA-256 校验失败：$($Artifact.fileName)"
+        }
+
+        Move-Item -LiteralPath $partialPath -Destination $archivePath
+        Write-Pass "下载及 SHA-256 校验通过：$($Artifact.fileName)"
+        return $archivePath
+    }
+    finally {
+        $ProgressPreference = $previousProgress
+        if (Test-Path -LiteralPath $partialPath -PathType Leaf) {
+            Remove-Item -LiteralPath $partialPath -Force
+        }
+    }
+}
+
+function Remove-ToolStagingDirectory {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $stagingRoot = [System.IO.Path]::GetFullPath(
+        (Join-Path $ToolsRoot ".staging")
+    ).TrimEnd("\") + "\"
+    $resolvedTarget = [System.IO.Path]::GetFullPath($Path).TrimEnd("\") + "\"
+    if (-not $resolvedTarget.StartsWith(
+        $stagingRoot,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "拒绝清理工具目录之外的路径：$Path"
+    }
+
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    }
+}
+
+function Install-LocalJdk {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ArchivePath
+    )
+
+    $target = Join-Path $ToolsRoot "jdk"
+    $java = Join-Path $target "bin\java.exe"
+    if (Test-Path -LiteralPath $java -PathType Leaf) {
+        Write-Pass "仓库本地 JDK 已就绪"
+        return $target
+    }
+    if (Test-Path -LiteralPath $target) {
+        throw "发现不完整的本地 JDK：$target。请检查或手动移走该目录。"
+    }
+
+    $stagingParent = Join-Path $ToolsRoot ".staging"
+    if (-not (Test-Path -LiteralPath $stagingParent)) {
+        New-Item -ItemType Directory -Path $stagingParent | Out-Null
+    }
+    $staging = Join-Path $stagingParent (
+        "jdk-" + [guid]::NewGuid().ToString("N")
+    )
+
+    try {
+        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $staging
+        $javaCandidate = Get-ChildItem -LiteralPath $staging `
+            -Filter "java.exe" -File -Recurse |
+            Where-Object {
+                $_.Directory.Name -eq "bin"
+            } |
+            Select-Object -First 1
+        if (-not $javaCandidate) {
+            throw "JDK 压缩包中没有找到 bin\java.exe"
+        }
+
+        $jdkRoot = Split-Path $javaCandidate.Directory.FullName -Parent
+        Move-Item -LiteralPath $jdkRoot -Destination $target
+        Write-Pass "JDK 已解压到仓库本地：$target"
+        return $target
+    }
+    finally {
+        Remove-ToolStagingDirectory -Path $staging
+    }
+}
+
+function Install-AndroidCommandLineTools {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ArchivePath
+    )
+
+    $sdkRoot = Join-Path $ToolsRoot "android-sdk"
+    $target = Join-Path $sdkRoot "cmdline-tools\latest"
+    $sdkManager = Join-Path $target "bin\sdkmanager.bat"
+    if (Test-Path -LiteralPath $sdkManager -PathType Leaf) {
+        Write-Pass "Android 命令行工具已就绪"
+        return $sdkManager
+    }
+    if (Test-Path -LiteralPath $target) {
+        throw "发现不完整的 Android 命令行工具：$target。请检查或手动移走该目录。"
+    }
+
+    $stagingParent = Join-Path $ToolsRoot ".staging"
+    if (-not (Test-Path -LiteralPath $stagingParent)) {
+        New-Item -ItemType Directory -Path $stagingParent | Out-Null
+    }
+    $staging = Join-Path $stagingParent (
+        "android-cli-" + [guid]::NewGuid().ToString("N")
+    )
+
+    try {
+        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $staging
+        $managerCandidate = Get-ChildItem -LiteralPath $staging `
+            -Filter "sdkmanager.bat" -File -Recurse |
+            Select-Object -First 1
+        if (-not $managerCandidate) {
+            throw "Android 命令行工具中没有找到 sdkmanager.bat"
+        }
+
+        $binDirectory = $managerCandidate.Directory.FullName
+        $commandLineRoot = Split-Path $binDirectory -Parent
+        $targetParent = Split-Path $target -Parent
+        if (-not (Test-Path -LiteralPath $targetParent)) {
+            New-Item -ItemType Directory -Path $targetParent -Force |
+                Out-Null
+        }
+        Move-Item -LiteralPath $commandLineRoot -Destination $target
+        Write-Pass "Android 命令行工具已解压到：$target"
+        return $sdkManager
+    }
+    finally {
+        Remove-ToolStagingDirectory -Path $staging
+    }
+}
+
+function Invoke-SdkManagerText {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SdkManager,
+
+        [Parameter(Mandatory)]
+        [string[]]$Arguments,
+
+        [switch]$ProvideLicenseConsent
+    )
+
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        if ($ProvideLicenseConsent) {
+            $answers = 1..50 | ForEach-Object { "y" }
+            $output = $answers | & $SdkManager @Arguments 2>&1
+        }
+        else {
+            $output = & $SdkManager @Arguments 2>&1
+        }
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Text = (($output | Out-String).Trim())
+    }
+}
+
+function Invoke-ToolBootstrap {
+    param(
+        [switch]$LicenseAccepted,
+        [switch]$PlanOnly
+    )
+
+    Write-Title "准备 Windows 本地工具链"
+
+    if (-not (Test-ToolchainManifest -Quiet)) {
+        Write-Fail "Windows 工具链清单无效"
+        return $false
+    }
+    if ($env:OS -ne "Windows_NT") {
+        Write-Fail "当前自动准备流程只支持 Windows"
+        return $false
+    }
+    if (
+        $env:PROCESSOR_ARCHITECTURE -notmatch "AMD64" -and
+        $env:PROCESSOR_ARCHITEW6432 -notmatch "AMD64"
+    ) {
+        Write-Fail "当前自动准备流程只支持 Windows x64"
+        return $false
+    }
+
+    $manifest = Get-ToolchainManifest
+    Write-Host "  JDK：$($manifest.java.distribution) $($manifest.java.version)"
+    Write-Host (
+        "  Android CLI：revision " +
+        "$($manifest.androidCommandLineTools.revision)"
+    )
+    Write-Host "  SDK 包：$(@($manifest.androidSdk.packages) -join ', ')"
+    Write-Host "  安装位置：$ToolsRoot"
+    Write-Host "  不修改系统 PATH、JAVA_HOME 或注册表"
+
+    if ($PlanOnly) {
+        Write-Pass "计划检查通过；DryRun 未下载、解压或接受许可"
+        return $true
+    }
+
+    if (-not $LicenseAccepted) {
+        Write-Warn "继续前必须由用户明确接受 Android SDK License"
+        Write-Host "  许可页面：$($manifest.androidSdk.licenseUrl)"
+        Write-Host (
+            "  阅读后重新运行，并添加 -AcceptAndroidSdkLicense。"
+        )
+        return $false
+    }
+
+    try {
+        if (-not (Test-Path -LiteralPath $ToolsRoot)) {
+            New-Item -ItemType Directory -Path $ToolsRoot | Out-Null
+        }
+
+        $jdkArchive = Get-VerifiedToolArchive -Artifact $manifest.java
+        $androidArchive = Get-VerifiedToolArchive `
+            -Artifact $manifest.androidCommandLineTools
+        $localJavaHome = Install-LocalJdk -ArchivePath $jdkArchive
+        $sdkManager = Install-AndroidCommandLineTools `
+            -ArchivePath $androidArchive
+        $sdkRoot = Join-Path $ToolsRoot "android-sdk"
+        $env:JAVA_HOME = $localJavaHome
+
+        Write-Host "  正在记录 Android SDK 许可确认..."
+        $licenses = Invoke-SdkManagerText -SdkManager $sdkManager `
+            -Arguments @("--sdk_root=$sdkRoot", "--licenses") `
+            -ProvideLicenseConsent
+        if ($licenses.ExitCode -ne 0) {
+            throw "Android SDK 许可处理失败：$($licenses.Text)"
+        }
+
+        Write-Host "  正在安装 ADB 与 Android Build Tools..."
+        $packages = Invoke-SdkManagerText -SdkManager $sdkManager `
+            -Arguments (
+                @("--sdk_root=$sdkRoot") +
+                @($manifest.androidSdk.packages)
+            ) `
+            -ProvideLicenseConsent
+        if ($packages.ExitCode -ne 0) {
+            throw "Android SDK 组件安装失败：$($packages.Text)"
+        }
+
+        $expected = @(
+            (Join-Path $sdkRoot "platform-tools\adb.exe"),
+            (Join-Path $sdkRoot "build-tools\34.0.0\apksigner.bat"),
+            (Join-Path $sdkRoot "build-tools\34.0.0\aapt2.exe"),
+            (Join-Path $localJavaHome "bin\java.exe")
+        )
+        foreach ($file in $expected) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                throw "工具安装结束，但缺少预期文件：$file"
+            }
+        }
+
+        $script:AdbExecutable = $expected[0]
+        $script:ResolvedJavaHome = $localJavaHome
+        $script:ApkSignerExecutable = $expected[1]
+        $script:Aapt2Executable = $expected[2]
+        Write-Pass "Windows 工具链已全部准备完成"
+        return $true
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $false
+    }
+}
+
 function Resolve-AdbExecutable {
     if ($script:AdbExecutable) {
         return $script:AdbExecutable
@@ -179,6 +575,9 @@ function Resolve-AdbExecutable {
     if (-not [string]::IsNullOrWhiteSpace($env:FEAGLE_ADB_PATH)) {
         $candidates.Add($env:FEAGLE_ADB_PATH)
     }
+    $candidates.Add((
+        Join-Path $ProjectRoot ".tools\android-sdk\platform-tools\adb.exe"
+    ))
     $candidates.Add((Join-Path $ProjectRoot ".tools\platform-tools\adb.exe"))
 
     $pathAdb = Get-Command adb -ErrorAction SilentlyContinue
@@ -202,9 +601,9 @@ function Get-AndroidSdkCandidates {
     foreach ($candidate in @(
         $AndroidSdkPath,
         $env:FEAGLE_ANDROID_SDK,
+        (Join-Path $ProjectRoot ".tools\android-sdk"),
         $env:ANDROID_SDK_ROOT,
-        $env:ANDROID_HOME,
-        (Join-Path $ProjectRoot ".tools\android-sdk")
+        $env:ANDROID_HOME
     )) {
         if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
             $candidates.Add([string]$candidate)
@@ -274,8 +673,8 @@ function Resolve-JavaHome {
     foreach ($candidate in @(
         $JavaHome,
         $env:FEAGLE_JAVA_HOME,
-        $env:JAVA_HOME,
-        (Join-Path $ProjectRoot ".tools\jdk")
+        (Join-Path $ProjectRoot ".tools\jdk"),
+        $env:JAVA_HOME
     )) {
         if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
             $candidates.Add([string]$candidate)
@@ -878,25 +1277,39 @@ function Show-SourceStatus {
 function Show-Menu {
     while ($true) {
         Write-Title "FEAGLE Android Setup"
-        Write-Host "1) 检查电脑与 Android 设备"
-        Write-Host "2) 验证本地微信 APK"
-        Write-Host "3) 安装已经验证的微信 APK"
-        Write-Host "4) 完整检查设备中已安装的微信"
-        Write-Host "5) 查看微信下载源状态"
-        Write-Host "6) 阅读设备前置条件"
+        Write-Host "1) 一键准备 ADB、JDK 与 Android 工具"
+        Write-Host "2) 检查电脑与 Android 设备"
+        Write-Host "3) 验证本地微信 APK"
+        Write-Host "4) 安装已经验证的微信 APK"
+        Write-Host "5) 完整检查设备中已安装的微信"
+        Write-Host "6) 查看微信下载源状态"
+        Write-Host "7) 阅读设备前置条件"
         Write-Host "0) 退出"
         Write-Host ""
 
-        $choice = Read-Host "请选择 [0-6]"
+        $choice = Read-Host "请选择 [0-7]"
         switch ($choice) {
-            "1" { $null = Invoke-Doctor }
-            "2" {
+            "1" {
+                Write-Host (
+                    "Android SDK License：" +
+                    "https://developer.android.com/studio/terms"
+                )
+                $confirmation = Read-Host (
+                    "阅读后如同意，请输入 ACCEPT ANDROID SDK LICENSE"
+                )
+                $null = Invoke-ToolBootstrap `
+                    -LicenseAccepted:(
+                        $confirmation -eq "ACCEPT ANDROID SDK LICENSE"
+                    )
+            }
+            "2" { $null = Invoke-Doctor }
+            "3" {
                 $localApk = Read-Host "请输入下载完成的 APK 文件路径"
                 if (-not [string]::IsNullOrWhiteSpace($localApk)) {
                     $null = Invoke-ApkVerification -Path $localApk
                 }
             }
-            "3" {
+            "4" {
                 $localApk = Read-Host "请输入已经验证的 APK 文件路径"
                 $confirmation = Read-Host (
                     "确认设备没有需要保留的旧微信数据后，输入 INSTALL 8.0.70"
@@ -906,9 +1319,9 @@ function Show-Menu {
                         -Confirmed:($confirmation -eq "INSTALL 8.0.70")
                 }
             }
-            "4" { $null = Invoke-WechatVerification }
-            "5" { Show-SourceStatus }
-            "6" {
+            "5" { $null = Invoke-WechatVerification }
+            "6" { Show-SourceStatus }
+            "7" {
                 Write-Host (Join-Path $ProjectRoot "docs\01-device-requirements.md")
             }
             "0" { return }
@@ -923,6 +1336,14 @@ switch ($Command) {
     }
     "doctor" {
         if (-not (Invoke-Doctor)) {
+            exit 1
+        }
+    }
+    "bootstrap-tools" {
+        if (-not (Invoke-ToolBootstrap `
+            -LicenseAccepted:$AcceptAndroidSdkLicense `
+            -PlanOnly:$DryRun
+        )) {
             exit 1
         }
     }
@@ -955,6 +1376,11 @@ switch ($Command) {
     }
     "validate-manifest" {
         if (-not (Test-Manifest)) {
+            exit 1
+        }
+    }
+    "validate-toolchain" {
+        if (-not (Test-ToolchainManifest)) {
             exit 1
         }
     }

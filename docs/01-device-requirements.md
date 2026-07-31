@@ -50,9 +50,11 @@ Android Kit 不负责：
 - Windows 10 或 Windows 11。
 - 可用 USB 接口。
 - PowerShell 5.1 或更新版本。
-- Android Platform Tools；后续版本的助手会自动下载并校验。
-- 如果需要本地构建 Agent，则额外需要 JDK 和 Android SDK；普通用户最终不应
-  被要求自行构建。
+- 能够访问微软和 Google 的官方工具下载地址。
+- ADB、JDK 17 与 Android SDK 不需要提前手动安装；助手会在用户明确接受
+  Android SDK License 后，将它们准备到仓库本地 `.tools` 目录。
+
+详见 [Windows 工具链一键准备](./03-windows-toolchain.md)。
 
 ## 5. 第一次设备检查
 

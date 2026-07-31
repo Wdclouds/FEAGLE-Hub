@@ -59,6 +59,24 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 
 ## Windows 检查入口
 
+第一次使用时，先在仓库目录一键准备工具：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 bootstrap-tools `
+  -AcceptAndroidSdkLicense
+```
+
+它会从微软与 Google 官方来源下载并校验 JDK 17、Android 命令行工具，
+再安装 ADB 与固定版本的 Android Build Tools。全部文件只放在仓库的
+`.tools` 目录，不需要管理员权限，也不永久修改系统环境变量。
+
+执行前请阅读
+[Android SDK License](https://developer.android.com/studio/terms)；
+不添加 `-AcceptAndroidSdkLicense` 时，助手会停止，不会替用户接受许可。
+也可以先使用 `bootstrap-tools -DryRun` 只查看计划。
+
+详见 [Windows 工具链一键准备](./docs/03-windows-toolchain.md)。
+
 连接已经由设备所有者开启 USB 调试的 Android 设备，然后运行：
 
 ```powershell
@@ -68,6 +86,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 也可以直接执行子命令：
 
 ```powershell
+.\scripts\windows\feagle-android.ps1 bootstrap-tools -DryRun
+.\scripts\windows\feagle-android.ps1 bootstrap-tools `
+  -AcceptAndroidSdkLicense
 .\scripts\windows\feagle-android.ps1 doctor
 .\scripts\windows\feagle-android.ps1 verify-apk `
   -ApkPath C:\Downloads\wechat-8.0.70.apk
@@ -111,7 +132,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 
 1. [设备与 Root 前置条件](./docs/01-device-requirements.md)
 2. [微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)
-3. [安全策略](./SECURITY.md)
+3. [Windows 工具链一键准备](./docs/03-windows-toolchain.md)
+4. [安全策略](./SECURITY.md)
 
 ## 路线图
 
@@ -122,7 +144,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - [x] Windows 本地 APK 验证与受控安装
 - [ ] 发布经过验证的下载来源
 - [ ] 迁入 Android Agent 与 Hook 适配器
-- [ ] Windows 工具依赖自动准备与模块状态检查
+- [x] Windows 工具依赖自动准备
+- [ ] Android 模块状态检查
 - [ ] Bridge 一次性配对码
 - [ ] 分段全链路测试
 - [ ] 脱敏诊断包
