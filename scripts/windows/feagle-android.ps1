@@ -1684,7 +1684,7 @@ function Invoke-AgentPairing {
 
         $activity = "$AgentPackageName/.MainActivity"
         $opened = Invoke-AdbText -Arguments @(
-            "shell", "am", "start",
+            "shell", "am", "start", "-S",
             "-n", $activity,
             "--es", "endpoint", $Endpoint,
             "--es", "pairing_code", $code

@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - 构建并检查 Android Agent APK。
 - 在显式确认后原地安装或升级 Agent，不自动清数据。
 - 检查 Agent、前台服务、通知兜底和最近 Hook 加载状态。
-- 通过 SSH 生成 5 分钟单次配对码，并安全预填到平板 Agent。
+- 通过 SSH 生成 5 分钟单次配对码，重开 Agent 页面后安全预填到平板。
 - 显示下载源与哈希是否已经发布。
 
 当前助手不会：

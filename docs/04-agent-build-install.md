@@ -89,6 +89,12 @@ ws://100.x.y.z:6191/android
 设备 Token 放进 ADB 命令。用户仍需在平板确认地址并点击
 “配对并启动 / Pair & Start”。
 
+为避免前台页面保留上一枚已经失效的密码框内容，配对命令会先停止并重新打开
+FEAGLE Agent 自身；不会停止微信，也不会清除 Agent 数据或模块设置。
+
+如果设备配对成功后云端连接显示 `1008`，检查 Bridge `.env` 里是否还保留着重装前的
+`ANDROID_DEVICE_ID`。应更新为当前 Agent 页面显示的设备 ID，再只重建 bot 容器。
+
 配对成功后，Agent 自动保存随机设备 Token、清除短码并重连。Token 保存在 Android
 应用私有目录；服务器 SQLite 只保存其 HMAC 摘要。旧版 Agent 的已有 Token 可以
 继续使用，但新部署不再要求手工复制长期 Token。
