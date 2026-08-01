@@ -1588,8 +1588,11 @@ function Invoke-AgentStatus {
         $recentLogs = Invoke-AdbText -Arguments @(
             "logcat",
             "-d",
-            "-t",
-            "1000"
+            "-v",
+            "brief",
+            "-s",
+            "LSPosed-Bridge:I",
+            "*:S"
         ) -AllowFailure
         if (
             $recentLogs.Text -match
