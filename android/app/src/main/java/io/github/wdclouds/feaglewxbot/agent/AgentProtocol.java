@@ -10,6 +10,7 @@ final class AgentProtocol {
     static final String PREFS = "agent";
     static final String KEY_ENDPOINT = "endpoint";
     static final String KEY_TOKEN = "token";
+    static final String KEY_PAIRING_CODE = "pairing_code";
     static final String KEY_DEVICE_ID = "device_id";
     static final String KEY_STATUS = "status";
     static final String KEY_HOOK_STATUS = "hook_status";
@@ -18,6 +19,8 @@ final class AgentProtocol {
 
     static final String ACTION_START = "io.github.wdclouds.feaglewxbot.agent.START";
     static final String ACTION_STOP = "io.github.wdclouds.feaglewxbot.agent.STOP";
+    static final String EXTRA_ENDPOINT = "endpoint";
+    static final String EXTRA_PAIRING_CODE = "pairing_code";
 
     static final String AGENT_PACKAGE = "io.github.wdclouds.feaglewxbot.agent";
     static final String SERVICE_CLASS =

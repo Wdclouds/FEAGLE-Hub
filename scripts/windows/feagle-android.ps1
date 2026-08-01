@@ -7,6 +7,7 @@ param(
         "build-agent",
         "install-agent",
         "agent-status",
+        "pair-agent",
         "doctor",
         "verify-apk",
         "install-wechat",
@@ -28,6 +29,14 @@ param(
 
     [string]$AgentApkPath,
 
+    [string]$ServerHost,
+
+    [string]$SshUser = "root",
+
+    [string]$ContainerName = "Feagle-wxbot",
+
+    [string]$BridgeEndpoint,
+
     [switch]$ConfirmInstall,
 
     [switch]$ConfirmAgentInstall,
@@ -43,8 +52,8 @@ $ManifestPath = Join-Path $ProjectRoot "checks\wechat-8.0.70.json"
 $ToolchainManifestPath = Join-Path $ProjectRoot "checks\windows-toolchain.json"
 $ToolsRoot = Join-Path $ProjectRoot ".tools"
 $AgentPackageName = "io.github.wdclouds.feaglewxbot.agent"
-$AgentVersionName = "0.4.4"
-$AgentVersionCode = 11
+$AgentVersionName = "0.5.0"
+$AgentVersionCode = 12
 $AgentBuildReceiptPath = Join-Path $ToolsRoot "agent-build.json"
 $script:AdbExecutable = $null
 $script:ApkSignerExecutable = $null
@@ -1218,11 +1227,11 @@ function Test-AndroidSource {
         if ($appBuild -notmatch "compileSdk 34") {
             $errors.Add("Android Agent compileSdk 必须为 34")
         }
-        if ($appBuild -notmatch "versionCode 11") {
-            $errors.Add("Android Agent versionCode 必须为 11")
+        if ($appBuild -notmatch "versionCode 12") {
+            $errors.Add("Android Agent versionCode 必须为 12")
         }
-        if ($appBuild -notmatch 'versionName "0\.4\.4"') {
-            $errors.Add("Android Agent versionName 必须为 0.4.4")
+        if ($appBuild -notmatch 'versionName "0\.5\.0"') {
+            $errors.Add("Android Agent versionName 必须为 0.5.0")
         }
     }
 
@@ -1621,6 +1630,78 @@ function Invoke-AgentStatus {
     }
 }
 
+function Invoke-AgentPairing {
+    param(
+        [string]$HostName,
+        [string]$UserName,
+        [string]$Container,
+        [string]$Endpoint
+    )
+
+    Write-Title "Android Agent 一次性配对"
+    try {
+        $null = Get-ConnectedDevice
+        if ($HostName -notmatch '^[A-Za-z0-9.-]+$') {
+            throw "服务器地址无效"
+        }
+        if ($UserName -notmatch '^[A-Za-z0-9_-]+$') {
+            throw "SSH 用户名无效"
+        }
+        if ($Container -notmatch '^[A-Za-z0-9_.-]+$') {
+            throw "容器名称无效"
+        }
+        if ($Endpoint -notmatch '^wss?://[A-Za-z0-9.:[\]-]+(?:/[A-Za-z0-9._~/-]*)?$') {
+            throw "Bridge 地址无效；请使用不含查询参数的 ws:// 或 wss:// 地址"
+        }
+
+        $ssh = Get-Command ssh.exe -ErrorAction SilentlyContinue
+        if (-not $ssh) {
+            throw "未找到 Windows OpenSSH 客户端（ssh.exe）"
+        }
+        $remoteCommand = (
+            "docker exec -e NODE_NO_WARNINGS=1 {0} " +
+            "node /app/src/android-pairing-cli.js create --json"
+        ) -f $Container
+        $result = Invoke-ExternalText -FilePath $ssh.Source -Arguments @(
+            "-o", "ConnectTimeout=15",
+            "$UserName@$HostName",
+            $remoteCommand
+        ) -AllowFailure
+        if ($result.ExitCode -ne 0) {
+            throw "服务器未能生成配对码：$($result.Text)"
+        }
+        $jsonLine = @($result.Text -split "`r?`n" |
+            Where-Object { $_ -match '^\{.*\}$' } |
+            Select-Object -Last 1)
+        if ($jsonLine.Count -ne 1) {
+            throw "服务器返回的配对结果无法识别"
+        }
+        $pairing = $jsonLine[0] | ConvertFrom-Json
+        $code = [string]$pairing.code
+        if ($code -notmatch '^\d{8}$') {
+            throw "服务器返回了无效配对码"
+        }
+
+        $activity = "$AgentPackageName/.MainActivity"
+        $opened = Invoke-AdbText -Arguments @(
+            "shell", "am", "start",
+            "-n", $activity,
+            "--es", "endpoint", $Endpoint,
+            "--es", "pairing_code", $code
+        ) -AllowFailure
+        if ($opened.ExitCode -ne 0) {
+            throw "无法在平板打开 Agent：$($opened.Text)"
+        }
+        Write-Pass "已在平板填入一次性配对码（5 分钟内有效）"
+        Write-Host "  请在平板上确认地址，然后点击：配对并启动 / Pair & Start"
+        return $true
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $false
+    }
+}
+
 function Invoke-AgentInstall {
     param(
         [string]$Path,
@@ -1865,12 +1946,13 @@ function Show-Menu {
         Write-Host "6) 构建 Android Agent"
         Write-Host "7) 安装 Android Agent"
         Write-Host "8) 检查 Agent 与 Hook 状态"
-        Write-Host "9) 查看微信下载源状态"
-        Write-Host "10) 阅读设备前置条件"
+        Write-Host "9) 与 ECS Bridge 一次性配对"
+        Write-Host "10) 查看微信下载源状态"
+        Write-Host "11) 阅读设备前置条件"
         Write-Host "0) 退出"
         Write-Host ""
 
-        $choice = Read-Host "请选择 [0-10]"
+        $choice = Read-Host "请选择 [0-11]"
         switch ($choice) {
             "1" {
                 Write-Host (
@@ -1915,8 +1997,17 @@ function Show-Menu {
                     -Confirmed:($confirmation -eq "INSTALL AGENT")
             }
             "8" { $null = Invoke-AgentStatus }
-            "9" { Show-SourceStatus }
-            "10" {
+            "9" {
+                $hostName = Read-Host "ECS 地址（IP 或域名）"
+                $endpoint = Read-Host "平板连接地址（ws:// 或 wss://，以 /android 结尾）"
+                $null = Invoke-AgentPairing `
+                    -HostName $hostName `
+                    -UserName "root" `
+                    -Container "Feagle-wxbot" `
+                    -Endpoint $endpoint
+            }
+            "10" { Show-SourceStatus }
+            "11" {
                 Write-Host (Join-Path $ProjectRoot "docs\01-device-requirements.md")
             }
             "0" { return }
@@ -1957,6 +2048,16 @@ switch ($Command) {
     }
     "agent-status" {
         if (-not (Invoke-AgentStatus)) {
+            exit 1
+        }
+    }
+    "pair-agent" {
+        if (-not (Invoke-AgentPairing `
+            -HostName $ServerHost `
+            -UserName $SshUser `
+            -Container $ContainerName `
+            -Endpoint $BridgeEndpoint
+        )) {
             exit 1
         }
     }

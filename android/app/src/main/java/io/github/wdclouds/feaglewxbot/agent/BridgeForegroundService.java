@@ -96,6 +96,10 @@ public final class BridgeForegroundService extends Service {
             setStatus("正在连接 / connecting");
             mainHandler.post(heartbeat);
             connect();
+        } else {
+            setStatus("正在重新连接 / reconnecting");
+            mainHandler.removeCallbacks(reconnect);
+            mainHandler.post(this::connect);
         }
         return START_STICKY;
     }
@@ -244,16 +248,31 @@ public final class BridgeForegroundService extends Service {
         try {
             Map<String, String> headers = new HashMap<>();
             String token = prefs.getString(AgentProtocol.KEY_TOKEN, "").trim();
-            if (!token.isEmpty()) {
+            String pairingCode = prefs.getString(
+                    AgentProtocol.KEY_PAIRING_CODE, "").trim();
+            boolean pairingMode = token.isEmpty();
+            if (pairingMode && !pairingCode.matches("\\d{8}")) {
+                setStatus("请输入 8 位配对码 / pairing code required");
+                return;
+            }
+            if (!pairingMode) {
                 headers.put("Authorization", "Bearer " + token);
             }
             socket = new WebSocketClient(
-                    URI.create(endpoint), new Draft_6455(), headers, 20_000) {
+                    URI.create(pairingMode ? pairingEndpoint(endpoint) : endpoint),
+                    new Draft_6455(), headers, 20_000) {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
                     mainHandler.post(() -> {
                         if (BridgeForegroundService.this.socket != this) return;
                         reconnectAttempt = 0;
+                        if (pairingMode) {
+                            setStatus("正在配对 / pairing");
+                            JSONObject request = baseEnvelope("pair_request");
+                            put(request, "pairingCode", pairingCode);
+                            send(request.toString());
+                            return;
+                        }
                         setStatus("已连接 / connected");
                         JSONObject hello = baseEnvelope("hello");
                         put(hello, "wechatVersion", installedWechatVersion());
@@ -308,6 +327,14 @@ public final class BridgeForegroundService extends Service {
         try {
             JSONObject message = new JSONObject(payload);
             String type = message.optString("type");
+            if ("pair_ack".equals(type)) {
+                handlePairAck(message);
+                return;
+            }
+            if ("pair_rejected".equals(type)) {
+                handlePairRejected(message);
+                return;
+            }
             if ("pong".equals(type) || "hello_ack".equals(type)) return;
             if ("event_ack".equals(type)) {
                 acknowledgeEvent(message.optString("eventId"));
@@ -327,6 +354,38 @@ public final class BridgeForegroundService extends Service {
         } catch (JSONException error) {
             sendCommandError("", "invalid_json");
         }
+    }
+
+    private void handlePairAck(JSONObject message) {
+        String expectedDeviceId = prefs.getString(
+                AgentProtocol.KEY_DEVICE_ID, "").trim();
+        String deviceId = message.optString("deviceId").trim();
+        String token = message.optString("token").trim();
+        if (!expectedDeviceId.equals(deviceId) || token.length() < 32) {
+            handlePairRejected(null);
+            return;
+        }
+        boolean saved = prefs.edit()
+                .putString(AgentProtocol.KEY_TOKEN, token)
+                .remove(AgentProtocol.KEY_PAIRING_CODE)
+                .commit();
+        if (!saved) {
+            setStatus("配对信息保存失败 / pairing save failed");
+            stopSocket();
+            return;
+        }
+        setStatus("配对成功，正在连接 / paired, connecting");
+        stopSocket();
+        mainHandler.postDelayed(reconnect, 250);
+    }
+
+    private void handlePairRejected(JSONObject message) {
+        String reason = message == null
+                ? "invalid_response"
+                : message.optString("reason", "rejected");
+        prefs.edit().remove(AgentProtocol.KEY_PAIRING_CODE).apply();
+        setStatus("配对失败 / pairing failed (" + reason + ")");
+        stopSocket();
     }
 
     private void acknowledgeEvent(String eventIdValue) {
@@ -556,6 +615,10 @@ public final class BridgeForegroundService extends Service {
         } catch (IllegalArgumentException error) {
             return false;
         }
+    }
+
+    private String pairingEndpoint(String endpoint) {
+        return endpoint + (endpoint.contains("?") ? "&" : "?") + "mode=pair";
     }
 
     private boolean isTailscaleIpv4(String host) {

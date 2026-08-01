@@ -25,22 +25,28 @@ import java.util.UUID;
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private EditText endpointInput;
-    private EditText tokenInput;
+    private EditText pairingCodeInput;
     private TextView statusView;
     private SharedPreferences prefs;
 
     private final Runnable refreshStatus = new Runnable() {
         @Override
         public void run() {
-            String status = prefs.getString(AgentProtocol.KEY_STATUS, "未启动 / stopped");
-            String hook = prefs.getString(AgentProtocol.KEY_HOOK_STATUS, "未连接 / disconnected");
+            String status = prefs.getString(
+                    AgentProtocol.KEY_STATUS, "未启动 / stopped");
+            String hook = prefs.getString(
+                    AgentProtocol.KEY_HOOK_STATUS, "未连接 / disconnected");
+            String paired = prefs.getString(AgentProtocol.KEY_TOKEN, "").isEmpty()
+                    ? "未配对 / not paired"
+                    : "已配对 / paired";
             String notifications = notificationAccessEnabled()
                     ? "已开启 / enabled"
                     : "未开启 / disabled";
             statusView.setText(
                     "云端连接 / Cloud: " + status
-                            + "\n通知读取 / Notifications: " + notifications
-                            + "\n回复通道 / Reply channel: " + hook);
+                            + "\n设备配对 / Pairing: " + paired
+                            + "\n消息通道 / Message channel: " + hook
+                            + "\n通知兜底 / Notifications: " + notifications);
             handler.postDelayed(this, 1000);
         }
     };
@@ -51,12 +57,20 @@ public final class MainActivity extends Activity {
         prefs = getSharedPreferences(AgentProtocol.PREFS, MODE_PRIVATE);
         ensureDeviceId();
         setContentView(buildContent());
+        applyIntentPrefill(getIntent());
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        applyIntentPrefill(intent);
     }
 
     @Override
@@ -87,10 +101,13 @@ public final class MainActivity extends Activity {
         TextView hint = new TextView(this);
         hint.setText(
                 "1. 在 LSPosed/Vector 中启用模块，作用域只选微信。\n"
-                        + "2. 填写 Bridge 的 wss:// 地址与设备 Token。\n"
-                        + "3. 保存启动后重启微信，确认 Hook 与云端均已连接。\n"
-                        + "4. 通知读取仅作为可选兜底，需要时再手动开启。\n\n"
-                        + "仅支持微信 8.0.70 私聊文本，不读取历史消息。");
+                        + "2. 填写 Bridge 的 wss:// 地址和 8 位一次性配对码。\n"
+                        + "3. 点击配对并启动；成功后配对码自动清除，无需保存长期 Token。\n"
+                        + "4. 重启微信，确认消息通道和云端连接均显示已连接。\n\n"
+                        + "1. Enable the module for WeChat only.\n"
+                        + "2. Enter the Bridge endpoint and the 8-digit one-time code.\n"
+                        + "3. Tap Pair & Start. The long-lived token is stored automatically.\n\n"
+                        + "首期仅支持微信 8.0.70 私聊文本，不读取历史消息。");
         hint.setTextSize(15);
         hint.setPadding(0, 0, 0, dp(16));
         body.addView(hint);
@@ -104,14 +121,13 @@ public final class MainActivity extends Activity {
         body.addView(label("Bridge 地址 / Endpoint"));
         body.addView(endpointInput, fullWidth());
 
-        tokenInput = new EditText(this);
-        tokenInput.setHint("设备 Token / Device token");
-        tokenInput.setSingleLine(true);
-        tokenInput.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        tokenInput.setText(prefs.getString(AgentProtocol.KEY_TOKEN, ""));
-        body.addView(label("鉴权 / Authentication"));
-        body.addView(tokenInput, fullWidth());
+        pairingCodeInput = new EditText(this);
+        pairingCodeInput.setHint("8 位配对码 / 8-digit pairing code");
+        pairingCodeInput.setSingleLine(true);
+        pairingCodeInput.setInputType(InputType.TYPE_CLASS_NUMBER
+                | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        body.addView(label("一次性配对 / One-time pairing"));
+        body.addView(pairingCodeInput, fullWidth());
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -119,20 +135,20 @@ public final class MainActivity extends Activity {
         actions.setPadding(0, dp(16), 0, dp(12));
 
         Button start = new Button(this);
-        start.setText("保存并启动 / Start");
+        start.setText("配对并启动 / Pair & Start");
         start.setOnClickListener(v -> startAgent());
-        actions.addView(start, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        actions.addView(start, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         Button stop = new Button(this);
         stop.setText("停止 / Stop");
         stop.setOnClickListener(v -> stopAgent());
-        actions.addView(stop, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        actions.addView(stop, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         body.addView(actions);
 
         Button notificationAccess = new Button(this);
-        notificationAccess.setText("通知读取权限 / Notification access");
+        notificationAccess.setText("通知兜底权限 / Notification fallback");
         notificationAccess.setOnClickListener(v -> {
             Intent settings = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
             startActivity(settings);
@@ -158,6 +174,18 @@ public final class MainActivity extends Activity {
         return scroll;
     }
 
+    private void applyIntentPrefill(Intent intent) {
+        if (intent == null) return;
+        String endpoint = intent.getStringExtra(AgentProtocol.EXTRA_ENDPOINT);
+        String pairingCode = intent.getStringExtra(AgentProtocol.EXTRA_PAIRING_CODE);
+        if (endpoint != null && !endpoint.trim().isEmpty()) {
+            endpointInput.setText(endpoint.trim());
+        }
+        if (pairingCode != null && pairingCode.trim().matches("\\d{8}")) {
+            pairingCodeInput.setText(pairingCode.trim());
+        }
+    }
+
     private TextView label(String text) {
         TextView view = new TextView(this);
         view.setText(text);
@@ -174,11 +202,14 @@ public final class MainActivity extends Activity {
 
     private void startAgent() {
         String endpoint = endpointInput.getText().toString().trim();
-        String token = tokenInput.getText().toString().trim();
-        prefs.edit()
-                .putString(AgentProtocol.KEY_ENDPOINT, endpoint)
-                .putString(AgentProtocol.KEY_TOKEN, token)
-                .apply();
+        String pairingCode = pairingCodeInput.getText().toString().trim();
+        SharedPreferences.Editor editor = prefs.edit()
+                .putString(AgentProtocol.KEY_ENDPOINT, endpoint);
+        if (!pairingCode.isEmpty()) {
+            editor.putString(AgentProtocol.KEY_PAIRING_CODE, pairingCode)
+                    .remove(AgentProtocol.KEY_TOKEN);
+        }
+        editor.apply();
 
         Intent intent = new Intent(this, BridgeForegroundService.class)
                 .setAction(AgentProtocol.ACTION_START);

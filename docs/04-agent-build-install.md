@@ -62,13 +62,38 @@ ADB 会拒绝更新，向导不会为了绕过错误而自动卸载。
 1. 在 LSPosed/Vector 中启用 `FEAGLEwxbot Agent`。
 2. 模块作用域只选择微信。
 3. 重启微信。
-4. 打开 Agent，填写 Bridge 的 `wss://` 地址和独立设备 Token。
-5. 点击“保存并启动”。
+4. 完成下一节的一次性配对。
 6. 只有确实需要通知兜底时，才手动开启通知读取权限。
 
 向导不会静默开启模块、修改作用域、授予通知读取权限或读取设备 Token。
 
-## 4. 检查状态
+## 4. 一次性配对
+
+服务器 Bridge 更新并启动后，在 Windows 仓库目录运行：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 pair-agent `
+  -ServerHost your-server.example.com `
+  -SshUser root `
+  -BridgeEndpoint wss://bot.example.com/android
+```
+
+Tailscale 私网可以把 Endpoint 改成服务器的 `100.64.0.0/10` 地址：
+
+```text
+ws://100.x.y.z:6191/android
+```
+
+向导通过 SSH 在 `Feagle-wxbot` 容器内生成一个 5 分钟有效、只能使用一次的
+8 位短码，再通过 ADB 打开 Agent 并预填地址和短码。它不会把服务器长期密钥或
+设备 Token 放进 ADB 命令。用户仍需在平板确认地址并点击
+“配对并启动 / Pair & Start”。
+
+配对成功后，Agent 自动保存随机设备 Token、清除短码并重连。Token 保存在 Android
+应用私有目录；服务器 SQLite 只保存其 HMAC 摘要。旧版 Agent 的已有 Token 可以
+继续使用，但新部署不再要求手工复制长期 Token。
+
+## 5. 检查状态
 
 运行：
 
@@ -87,7 +112,7 @@ ADB 会拒绝更新，向导不会为了绕过错误而自动卸载。
 最近日志只能证明近期加载过，不等同于当前云端已经连接。云端状态仍以 Agent 页面
 的“Cloud / 云端连接”为准。状态检查不会进入 Agent 私有目录读取 Token。
 
-## 5. 常见恢复方式
+## 6. 常见恢复方式
 
 如果构建被断电或强制终止，直接重新运行 `build-agent`。向导会先执行 Gradle
 `clean`，避免残留的增量打包目录导致下一次构建失败。
