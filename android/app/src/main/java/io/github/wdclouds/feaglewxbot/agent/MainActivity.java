@@ -26,6 +26,7 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private EditText endpointInput;
     private EditText pairingCodeInput;
+    private Button startButton;
     private TextView statusView;
     private SharedPreferences prefs;
 
@@ -36,9 +37,19 @@ public final class MainActivity extends Activity {
                     AgentProtocol.KEY_STATUS, "未启动 / stopped");
             String hook = prefs.getString(
                     AgentProtocol.KEY_HOOK_STATUS, "未连接 / disconnected");
-            String paired = prefs.getString(AgentProtocol.KEY_TOKEN, "").isEmpty()
+            boolean isPaired = !prefs.getString(AgentProtocol.KEY_TOKEN, "").isEmpty();
+            String paired = !isPaired
                     ? "未配对 / not paired"
                     : "已配对 / paired";
+            if (isPaired && pairingCodeInput != null
+                    && pairingCodeInput.length() > 0) {
+                pairingCodeInput.setText("");
+            }
+            if (startButton != null) {
+                startButton.setText(isPaired
+                        ? "保存并重连 / Save & Reconnect"
+                        : "配对并启动 / Pair & Start");
+            }
             String notifications = notificationAccessEnabled()
                     ? "已开启 / enabled"
                     : "未开启 / disabled";
@@ -134,10 +145,10 @@ public final class MainActivity extends Activity {
         actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.setPadding(0, dp(16), 0, dp(12));
 
-        Button start = new Button(this);
-        start.setText("配对并启动 / Pair & Start");
-        start.setOnClickListener(v -> startAgent());
-        actions.addView(start, new LinearLayout.LayoutParams(
+        startButton = new Button(this);
+        startButton.setText("配对并启动 / Pair & Start");
+        startButton.setOnClickListener(v -> startAgent());
+        actions.addView(startButton, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         Button stop = new Button(this);
@@ -203,6 +214,15 @@ public final class MainActivity extends Activity {
     private void startAgent() {
         String endpoint = endpointInput.getText().toString().trim();
         String pairingCode = pairingCodeInput.getText().toString().trim();
+        String existingToken = prefs.getString(AgentProtocol.KEY_TOKEN, "").trim();
+        if (!pairingCode.isEmpty() && !pairingCode.matches("\\d{8}")) {
+            pairingCodeInput.setError("请输入 8 位数字 / Enter 8 digits");
+            return;
+        }
+        if (pairingCode.isEmpty() && existingToken.isEmpty()) {
+            pairingCodeInput.setError("请先输入配对码 / Pairing code required");
+            return;
+        }
         SharedPreferences.Editor editor = prefs.edit()
                 .putString(AgentProtocol.KEY_ENDPOINT, endpoint);
         if (!pairingCode.isEmpty()) {
