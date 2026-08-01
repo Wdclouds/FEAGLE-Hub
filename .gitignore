@@ -1,0 +1,28 @@
+# Local tools and downloaded packages
+.tools/
+downloads/
+*.apk
+*.apks
+*.xapk
+
+# Device and diagnostic output
+diagnostics/
+*.log
+device-state.json
+
+# Secrets and local configuration
+.env
+*.token
+pairing.json
+
+# Build and editor output
+build/
+dist/
+.gradle/
+android/.gradle/
+android/**/build/
+android/local.properties
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
