@@ -4,13 +4,17 @@ param(
     [ValidateSet(
         "menu",
         "bootstrap-tools",
+        "build-agent",
+        "install-agent",
+        "agent-status",
         "doctor",
         "verify-apk",
         "install-wechat",
         "verify-wechat",
         "source-status",
         "validate-manifest",
-        "validate-toolchain"
+        "validate-toolchain",
+        "validate-android-source"
     )]
     [string]$Command = "menu",
 
@@ -22,7 +26,11 @@ param(
 
     [string]$JavaHome,
 
+    [string]$AgentApkPath,
+
     [switch]$ConfirmInstall,
+
+    [switch]$ConfirmAgentInstall,
 
     [switch]$AcceptAndroidSdkLicense,
 
@@ -34,6 +42,10 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $ManifestPath = Join-Path $ProjectRoot "checks\wechat-8.0.70.json"
 $ToolchainManifestPath = Join-Path $ProjectRoot "checks\windows-toolchain.json"
 $ToolsRoot = Join-Path $ProjectRoot ".tools"
+$AgentPackageName = "io.github.wdclouds.feaglewxbot.agent"
+$AgentVersionName = "0.4.4"
+$AgentVersionCode = 11
+$AgentBuildReceiptPath = Join-Path $ToolsRoot "agent-build.json"
 $script:AdbExecutable = $null
 $script:ApkSignerExecutable = $null
 $script:Aapt2Executable = $null
@@ -123,6 +135,9 @@ function Test-ToolchainManifest {
     }
     if ("build-tools;34.0.0" -notin $packages) {
         $errors.Add("工具链必须固定 Android Build Tools 34.0.0")
+    }
+    if ("platforms;android-34" -notin $packages) {
+        $errors.Add("工具链必须包含 Android SDK Platform 34")
     }
 
     if ($errors.Count -gt 0) {
@@ -542,6 +557,7 @@ function Invoke-ToolBootstrap {
             (Join-Path $sdkRoot "platform-tools\adb.exe"),
             (Join-Path $sdkRoot "build-tools\34.0.0\apksigner.bat"),
             (Join-Path $sdkRoot "build-tools\34.0.0\aapt2.exe"),
+            (Join-Path $sdkRoot "platforms\android-34\android.jar"),
             (Join-Path $localJavaHome "bin\java.exe")
         )
         foreach ($file in $expected) {
@@ -1096,6 +1112,567 @@ function Invoke-Doctor {
     }
 }
 
+function Test-AndroidSource {
+    param([switch]$Quiet)
+
+    $androidRoot = Join-Path $ProjectRoot "android"
+    $errors = [System.Collections.Generic.List[string]]::new()
+    $requiredFiles = @(
+        "settings.gradle",
+        "build.gradle",
+        "gradlew",
+        "gradlew.bat",
+        "gradle\wrapper\gradle-wrapper.jar",
+        "gradle\wrapper\gradle-wrapper.properties",
+        "app\build.gradle",
+        "app\src\main\AndroidManifest.xml",
+        "app\src\main\assets\xposed_init",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\AgentProtocol.java",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\BridgeForegroundService.java",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\MainActivity.java",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\NotificationInboundAdapter.java",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\Wechat8070Adapter.java",
+        "app\src\main\java\io\github\wdclouds\feaglewxbot\agent\WechatHook.java"
+    )
+
+    foreach ($relative in $requiredFiles) {
+        if (-not (Test-Path -LiteralPath (
+            Join-Path $androidRoot $relative
+        ) -PathType Leaf)) {
+            $errors.Add("Android 工程缺少文件：$relative")
+        }
+    }
+
+    $wrapperPropertiesPath = Join-Path $androidRoot (
+        "gradle\wrapper\gradle-wrapper.properties"
+    )
+    if (Test-Path -LiteralPath $wrapperPropertiesPath) {
+        $wrapperProperties = Get-Content -Raw -Encoding UTF8 `
+            -LiteralPath $wrapperPropertiesPath
+        if (
+            $wrapperProperties -notmatch
+            "distributionUrl=https\\:.*gradle-8\.9-bin\.zip"
+        ) {
+            $errors.Add("Gradle Wrapper 必须固定为 8.9 binary distribution")
+        }
+        if (
+            $wrapperProperties -notmatch
+            "distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab"
+        ) {
+            $errors.Add("Gradle 8.9 distribution SHA-256 缺失或不匹配")
+        }
+        if ($wrapperProperties -notmatch "validateDistributionUrl=true") {
+            $errors.Add("Gradle Wrapper 必须验证 distribution URL")
+        }
+    }
+
+    $wrapperJarPath = Join-Path $androidRoot (
+        "gradle\wrapper\gradle-wrapper.jar"
+    )
+    if (Test-Path -LiteralPath $wrapperJarPath -PathType Leaf) {
+        $wrapperHash = (
+            Get-FileHash -LiteralPath $wrapperJarPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        if (
+            $wrapperHash -ne
+            "498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17"
+        ) {
+            $errors.Add("Gradle 8.9 Wrapper JAR SHA-256 不匹配")
+        }
+    }
+
+    if (Test-Path -LiteralPath $androidRoot) {
+        $sourceFiles = Get-ChildItem -LiteralPath $androidRoot -Recurse -File |
+            Where-Object {
+                $_.FullName -notmatch "[\\/](build|\.gradle)[\\/]"
+            }
+        foreach ($sourceFile in $sourceFiles) {
+            if ($sourceFile.Extension -in @(".jar", ".png", ".apk")) {
+                continue
+            }
+            $content = Get-Content -Raw -Encoding UTF8 `
+                -LiteralPath $sourceFile.FullName
+            if ($content -match "8\.0\.74") {
+                $errors.Add(
+                    "Android 源码仍包含已经废弃的微信 8.0.74：" +
+                    $sourceFile.FullName
+                )
+            }
+            if (
+                $content -match "sk-[a-zA-Z0-9]{20,}" -or
+                $content -match "wss?://(?:[0-9]{1,3}\.){3}[0-9]{1,3}" -or
+                $content -match
+                '(?i)(api[_-]?key|password|secret)\s*[:=]\s*[''"][^''"]{8,}[''"]'
+            ) {
+                $errors.Add("Android 源码疑似包含私密配置：$($sourceFile.FullName)")
+            }
+        }
+    }
+
+    $appBuildPath = Join-Path $androidRoot "app\build.gradle"
+    if (Test-Path -LiteralPath $appBuildPath) {
+        $appBuild = Get-Content -Raw -Encoding UTF8 -LiteralPath $appBuildPath
+        if ($appBuild -notmatch 'applicationId "io\.github\.wdclouds\.feaglewxbot\.agent"') {
+            $errors.Add("Android Agent applicationId 不匹配")
+        }
+        if ($appBuild -notmatch "compileSdk 34") {
+            $errors.Add("Android Agent compileSdk 必须为 34")
+        }
+        if ($appBuild -notmatch "versionCode 11") {
+            $errors.Add("Android Agent versionCode 必须为 11")
+        }
+        if ($appBuild -notmatch 'versionName "0\.4\.4"') {
+            $errors.Add("Android Agent versionName 必须为 0.4.4")
+        }
+    }
+
+    if ($errors.Count -gt 0) {
+        if (-not $Quiet) {
+            foreach ($item in $errors) {
+                Write-Fail $item
+            }
+        }
+        return $false
+    }
+
+    if (-not $Quiet) {
+        Write-Pass "Android Agent 源码结构、版本门禁与 Wrapper 校验有效"
+    }
+    return $true
+}
+
+function Resolve-AndroidSdkRootForBuild {
+    foreach ($candidate in Get-AndroidSdkCandidates) {
+        if ([string]::IsNullOrWhiteSpace([string]$candidate)) {
+            continue
+        }
+        $platformJar = Join-Path $candidate (
+            "platforms\android-34\android.jar"
+        )
+        if (Test-Path -LiteralPath $platformJar -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    throw (
+        "未找到 Android SDK Platform 34。请先运行 bootstrap-tools " +
+        "-AcceptAndroidSdkLicense。"
+    )
+}
+
+function Get-AgentApkInspection {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $errors = [System.Collections.Generic.List[string]]::new()
+    $resolvedPath = $null
+    $packageName = $null
+    $versionName = $null
+    $versionCode = $null
+    $fileSha256 = $null
+
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+            throw "找不到 Agent APK：$Path"
+        }
+        $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+        if ([System.IO.Path]::GetExtension($resolvedPath) -ne ".apk") {
+            throw "Agent 安装文件必须是 .apk"
+        }
+        $fileSha256 = (
+            Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+
+        $aapt2 = Resolve-Aapt2Executable
+        $badging = Invoke-ExternalText -FilePath $aapt2 -Arguments @(
+            "dump",
+            "badging",
+            $resolvedPath
+        ) -AllowFailure
+        if ($badging.ExitCode -ne 0) {
+            throw "无法读取 Agent APK 包信息"
+        }
+        if (
+            $badging.Text -notmatch
+            "(?m)^package:\s+name='([^']+)'\s+versionCode='([^']+)'\s+versionName='([^']+)'"
+        ) {
+            throw "Agent APK 缺少包名或版本信息"
+        }
+
+        $packageName = $Matches[1]
+        $versionCode = $Matches[2]
+        $versionName = $Matches[3]
+        if (
+            $packageName -ne
+            $AgentPackageName
+        ) {
+            throw "Agent APK 包名不匹配：$packageName"
+        }
+        if ($versionName -ne $AgentVersionName) {
+            throw "Agent APK 版本不匹配：$versionName"
+        }
+        if ([long]$versionCode -ne [long]$AgentVersionCode) {
+            throw "Agent APK versionCode 不匹配：$versionCode"
+        }
+    }
+    catch {
+        $errors.Add($_.Exception.Message)
+    }
+
+    return [pscustomobject]@{
+        Valid = ($errors.Count -eq 0)
+        Path = $resolvedPath
+        PackageName = $packageName
+        VersionName = $versionName
+        VersionCode = $versionCode
+        FileSha256 = $fileSha256
+        Errors = @($errors)
+    }
+}
+
+function Write-AgentApkInspection {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Inspection
+    )
+
+    if (-not $Inspection.Valid) {
+        foreach ($item in $Inspection.Errors) {
+            Write-Fail $item
+        }
+        return
+    }
+
+    Write-Pass "Agent APK 包名：$($Inspection.PackageName)"
+    Write-Pass (
+        "Agent APK 版本：$($Inspection.VersionName) " +
+        "($($Inspection.VersionCode))"
+    )
+    Write-Host "  APK SHA-256：$($Inspection.FileSha256)"
+}
+
+function Save-AgentBuildReceipt {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Inspection
+    )
+
+    if (-not (Test-Path -LiteralPath $ToolsRoot)) {
+        New-Item -ItemType Directory -Path $ToolsRoot | Out-Null
+    }
+    $temporaryReceipt = Join-Path $ToolsRoot (
+        ".agent-build." + [guid]::NewGuid().ToString("N") + ".tmp"
+    )
+    try {
+        [pscustomobject]@{
+            schemaVersion = 1
+            packageName = $Inspection.PackageName
+            versionName = $Inspection.VersionName
+            versionCode = [long]$Inspection.VersionCode
+            fileSha256 = $Inspection.FileSha256
+            builtAt = (Get-Date).ToUniversalTime().ToString("o")
+        } |
+            ConvertTo-Json -Depth 3 |
+            Set-Content -LiteralPath $temporaryReceipt -Encoding UTF8
+        Move-Item -LiteralPath $temporaryReceipt `
+            -Destination $AgentBuildReceiptPath -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryReceipt -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryReceipt -Force
+        }
+    }
+}
+
+function Test-AgentBuildReceipt {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Inspection
+    )
+
+    if (-not (Test-Path -LiteralPath $AgentBuildReceiptPath -PathType Leaf)) {
+        Write-Fail "缺少本机 Agent 构建收据，请先运行 build-agent"
+        return $false
+    }
+
+    try {
+        $receipt = Get-Content -Raw -Encoding UTF8 `
+            -LiteralPath $AgentBuildReceiptPath |
+            ConvertFrom-Json
+        if ($receipt.schemaVersion -ne 1) {
+            throw "构建收据版本无效"
+        }
+        if ([string]$receipt.packageName -ne $Inspection.PackageName) {
+            throw "构建收据包名不匹配"
+        }
+        if ([string]$receipt.versionName -ne $Inspection.VersionName) {
+            throw "构建收据版本不匹配"
+        }
+        if ([long]$receipt.versionCode -ne [long]$Inspection.VersionCode) {
+            throw "构建收据 versionCode 不匹配"
+        }
+        if (
+            [string]$receipt.fileSha256 -ne
+            [string]$Inspection.FileSha256
+        ) {
+            throw "Agent APK 与最近一次本机安全构建的 SHA-256 不一致"
+        }
+        Write-Pass "Agent APK 与本机构建收据一致"
+        return $true
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $false
+    }
+}
+
+function Invoke-AgentBuild {
+    Write-Title "构建 FEAGLEwxbot Android Agent"
+
+    try {
+        if (-not (Test-AndroidSource -Quiet)) {
+            throw "Android Agent 源码安全检查失败"
+        }
+
+        $androidRoot = Join-Path $ProjectRoot "android"
+        $gradle = Join-Path $androidRoot "gradlew.bat"
+        $env:JAVA_HOME = Resolve-JavaHome
+        $sdkRoot = Resolve-AndroidSdkRootForBuild
+        $env:ANDROID_SDK_ROOT = $sdkRoot
+        $env:ANDROID_HOME = $sdkRoot
+        $env:GRADLE_USER_HOME = Join-Path $ToolsRoot "gradle-home"
+
+        Write-Host "  Java：$env:JAVA_HOME"
+        Write-Host "  Android SDK：$sdkRoot"
+        Write-Host "  正在执行 Gradle Debug 构建..."
+
+        Push-Location $androidRoot
+        try {
+            $build = Invoke-ExternalText -FilePath $gradle -Arguments @(
+                "clean",
+                ":app:assembleDebug",
+                "--no-daemon",
+                "--stacktrace"
+            ) -AllowFailure
+        }
+        finally {
+            Pop-Location
+        }
+
+        if ($build.ExitCode -ne 0) {
+            throw "Android Agent 构建失败：$($build.Text)"
+        }
+
+        $apk = Join-Path $androidRoot (
+            "app\build\outputs\apk\debug\app-debug.apk"
+        )
+        $inspection = Get-AgentApkInspection -Path $apk
+        Write-AgentApkInspection $inspection
+        if (-not $inspection.Valid) {
+            throw "构建产物校验失败"
+        }
+
+        Save-AgentBuildReceipt -Inspection $inspection
+        Write-Pass "本机构建收据已保存到 .tools\agent-build.json"
+        Write-Pass "Agent 构建完成：$apk"
+        return $inspection
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $null
+    }
+}
+
+function Get-AgentPackageInfo {
+    $result = Invoke-AdbText -Arguments @(
+        "shell",
+        "dumpsys",
+        "package",
+        $AgentPackageName
+    ) -AllowFailure
+
+    if (
+        $result.ExitCode -ne 0 -or
+        $result.Text -notmatch
+        "Package \[io\.github\.wdclouds\.feaglewxbot\.agent\]"
+    ) {
+        return $null
+    }
+
+    $versionName = ""
+    $versionCode = ""
+    if ($result.Text -match "versionName=([^\s]+)") {
+        $versionName = $Matches[1]
+    }
+    if ($result.Text -match "versionCode=(\d+)") {
+        $versionCode = $Matches[1]
+    }
+
+    return [pscustomobject]@{
+        PackageName = $AgentPackageName
+        VersionName = $versionName
+        VersionCode = $versionCode
+    }
+}
+
+function Invoke-AgentStatus {
+    Write-Title "Android Agent 状态检查"
+
+    try {
+        $null = Get-ConnectedDevice
+        $wechat = Get-WechatPackageInfo
+        if (-not $wechat) {
+            Write-Fail "微信尚未安装"
+        }
+        elseif ($wechat.VersionName -eq "8.0.70") {
+            Write-Pass "微信版本门禁：8.0.70"
+        }
+        else {
+            Write-Fail "微信版本不兼容：$($wechat.VersionName)"
+        }
+
+        $agent = Get-AgentPackageInfo
+        if (-not $agent) {
+            Write-Fail "FEAGLEwxbot Agent 尚未安装"
+            return $false
+        }
+        Write-Pass (
+            "Agent 已安装：$($agent.VersionName) ($($agent.VersionCode))"
+        )
+
+        $process = Invoke-AdbText -Arguments @(
+            "shell",
+            "pidof",
+            "io.github.wdclouds.feaglewxbot.agent"
+        ) -AllowFailure
+        if ($process.ExitCode -eq 0 -and $process.Text -match "\d+") {
+            Write-Pass "Agent 进程正在运行"
+        }
+        else {
+            Write-Warn "Agent 进程尚未运行，请在平板打开 Agent"
+        }
+
+        $services = Invoke-AdbText -Arguments @(
+            "shell",
+            "dumpsys",
+            "activity",
+            "services",
+            "io.github.wdclouds.feaglewxbot.agent"
+        ) -AllowFailure
+        if ($services.Text -match "BridgeForegroundService") {
+            Write-Pass "Bridge 前台服务正在运行"
+        }
+        else {
+            Write-Warn "Bridge 前台服务尚未启动"
+        }
+
+        $notificationAccess = Invoke-AdbText -Arguments @(
+            "shell",
+            "settings",
+            "get",
+            "secure",
+            "enabled_notification_listeners"
+        ) -AllowFailure
+        if (
+            $notificationAccess.Text -match
+            "io\.github\.wdclouds\.feaglewxbot\.agent"
+        ) {
+            Write-Pass "通知读取兜底已由用户开启"
+        }
+        else {
+            Write-Warn "通知读取兜底未开启（Hook 主链路不强制要求）"
+        }
+
+        $recentLogs = Invoke-AdbText -Arguments @(
+            "logcat",
+            "-d",
+            "-t",
+            "1000"
+        ) -AllowFailure
+        if (
+            $recentLogs.Text -match
+            "FEAGLE-Hook: 8\.0\.70 inbound adapter installed"
+        ) {
+            Write-Pass "最近日志确认 8.0.70 Hook 适配器已加载"
+        }
+        elseif ($recentLogs.Text -match "FEAGLE-Hook: inactive") {
+            Write-Fail "最近日志显示 Hook 因版本门禁未启用"
+        }
+        else {
+            Write-Warn (
+                "暂未在最近日志中确认 Hook；请在 LSPosed/Vector 启用模块，" +
+                "作用域只选微信，然后重启微信"
+            )
+        }
+
+        Write-Warn (
+            "本检查不会读取 Agent 私有 Token；云端连接状态请在 Agent 页面确认"
+        )
+        return ($wechat -and $wechat.VersionName -eq "8.0.70")
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $false
+    }
+}
+
+function Invoke-AgentInstall {
+    param(
+        [string]$Path,
+        [switch]$Confirmed
+    )
+
+    Write-Title "安装 FEAGLEwxbot Android Agent"
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            $Path = Join-Path $ProjectRoot (
+                "android\app\build\outputs\apk\debug\app-debug.apk"
+            )
+        }
+
+        $inspection = Get-AgentApkInspection -Path $Path
+        Write-AgentApkInspection $inspection
+        if (-not $inspection.Valid) {
+            return $false
+        }
+        if (-not (Test-AgentBuildReceipt -Inspection $inspection)) {
+            Write-Warn "只允许安装本机 build-agent 生成且未被修改的 APK"
+            return $false
+        }
+
+        if (-not $Confirmed) {
+            Write-Warn "尚未获得 Agent 安装确认"
+            Write-Host "  确认后重新运行并添加 -ConfirmAgentInstall"
+            return $false
+        }
+        $null = Get-ConnectedDevice
+
+        $install = Invoke-AdbText -Arguments @(
+            "install",
+            "--no-streaming",
+            "-r",
+            $inspection.Path
+        ) -AllowFailure
+        if (
+            $install.ExitCode -ne 0 -or
+            $install.Text -notmatch "(?m)^Success$"
+        ) {
+            throw "Agent ADB 安装失败：$($install.Text)"
+        }
+
+        Write-Pass "Agent 已安装或原地升级，应用数据未清除"
+        Write-Warn "助手不会自动启用 LSPosed/Vector 作用域或敏感系统权限"
+        return $true
+    }
+    catch {
+        Write-Fail $_.Exception.Message
+        return $false
+    }
+}
+
 function Invoke-WechatVerification {
     Write-Title "微信 8.0.70 检查"
 
@@ -1282,12 +1859,15 @@ function Show-Menu {
         Write-Host "3) 验证本地微信 APK"
         Write-Host "4) 安装已经验证的微信 APK"
         Write-Host "5) 完整检查设备中已安装的微信"
-        Write-Host "6) 查看微信下载源状态"
-        Write-Host "7) 阅读设备前置条件"
+        Write-Host "6) 构建 Android Agent"
+        Write-Host "7) 安装 Android Agent"
+        Write-Host "8) 检查 Agent 与 Hook 状态"
+        Write-Host "9) 查看微信下载源状态"
+        Write-Host "10) 阅读设备前置条件"
         Write-Host "0) 退出"
         Write-Host ""
 
-        $choice = Read-Host "请选择 [0-7]"
+        $choice = Read-Host "请选择 [0-10]"
         switch ($choice) {
             "1" {
                 Write-Host (
@@ -1320,8 +1900,20 @@ function Show-Menu {
                 }
             }
             "5" { $null = Invoke-WechatVerification }
-            "6" { Show-SourceStatus }
+            "6" { $null = Invoke-AgentBuild }
             "7" {
+                $localApk = Read-Host (
+                    "Agent APK 路径（直接回车使用默认构建产物）"
+                )
+                $confirmation = Read-Host (
+                    "确认向当前设备安装 Agent，请输入 INSTALL AGENT"
+                )
+                $null = Invoke-AgentInstall -Path $localApk `
+                    -Confirmed:($confirmation -eq "INSTALL AGENT")
+            }
+            "8" { $null = Invoke-AgentStatus }
+            "9" { Show-SourceStatus }
+            "10" {
                 Write-Host (Join-Path $ProjectRoot "docs\01-device-requirements.md")
             }
             "0" { return }
@@ -1344,6 +1936,24 @@ switch ($Command) {
             -LicenseAccepted:$AcceptAndroidSdkLicense `
             -PlanOnly:$DryRun
         )) {
+            exit 1
+        }
+    }
+    "build-agent" {
+        if (-not (Invoke-AgentBuild)) {
+            exit 1
+        }
+    }
+    "install-agent" {
+        if (-not (Invoke-AgentInstall `
+            -Path $AgentApkPath `
+            -Confirmed:$ConfirmAgentInstall
+        )) {
+            exit 1
+        }
+    }
+    "agent-status" {
+        if (-not (Invoke-AgentStatus)) {
             exit 1
         }
     }
@@ -1381,6 +1991,11 @@ switch ($Command) {
     }
     "validate-toolchain" {
         if (-not (Test-ToolchainManifest)) {
+            exit 1
+        }
+    }
+    "validate-android-source" {
+        if (-not (Test-AndroidSource)) {
             exit 1
         }
     }

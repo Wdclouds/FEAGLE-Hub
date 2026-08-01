@@ -12,8 +12,8 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 ```
 
 > [!IMPORTANT]
-> 当前仓库处于第一阶段，只包含安全检查框架和新手文档。Android Agent、自动配对
-> 和完整安装流程将在后续版本迁入。现在不要把它当作已经完成的一键安装器。
+> 当前仓库已迁入 Android Agent、8.0.70 Hook 适配器和 Windows 构建/安装/状态
+> 检查入口。Bridge 自动配对和完整全链路向导仍未完成，暂时不是最终的一键安装器。
 
 ## 当前支持基线
 
@@ -96,6 +96,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
   -ApkPath C:\Downloads\wechat-8.0.70.apk `
   -ConfirmInstall
 .\scripts\windows\feagle-android.ps1 verify-wechat
+.\scripts\windows\feagle-android.ps1 build-agent
+.\scripts\windows\feagle-android.ps1 install-agent `
+  -ConfirmAgentInstall
+.\scripts\windows\feagle-android.ps1 agent-status
 .\scripts\windows\feagle-android.ps1 source-status
 ```
 
@@ -119,6 +123,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - 只在验证全部通过并显式确认后执行 ADB 安装。
 - 遇到设备中的其他微信版本时停止，不自动卸载、降级或清数据。
 - 从设备临时读取已安装 APK，完成后立即删除临时副本。
+- 构建并检查 Android Agent APK。
+- 在显式确认后原地安装或升级 Agent，不自动清数据。
+- 检查 Agent、前台服务、通知兜底和最近 Hook 加载状态。
 - 显示下载源与哈希是否已经发布。
 
 当前助手不会：
@@ -133,7 +140,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 1. [设备与 Root 前置条件](./docs/01-device-requirements.md)
 2. [微信 8.0.70 安装与验证](./docs/02-wechat-8070-install.md)
 3. [Windows 工具链一键准备](./docs/03-windows-toolchain.md)
-4. [安全策略](./SECURITY.md)
+4. [Android Agent 构建、安装与状态检查](./docs/04-agent-build-install.md)
+5. [安全策略](./SECURITY.md)
 
 ## 路线图
 
@@ -143,9 +151,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - [x] 从已验证设备确认文件哈希和签名证书指纹
 - [x] Windows 本地 APK 验证与受控安装
 - [ ] 发布经过验证的下载来源
-- [ ] 迁入 Android Agent 与 Hook 适配器
+- [x] 迁入 Android Agent 与 8.0.70 Hook 适配器
 - [x] Windows 工具依赖自动准备
-- [ ] Android 模块状态检查
+- [x] Android 模块基础状态检查
 - [ ] Bridge 一次性配对码
 - [ ] 分段全链路测试
 - [ ] 脱敏诊断包

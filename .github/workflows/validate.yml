@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  manifest:
+  windows-guards:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +21,9 @@ jobs:
       - name: Check tool bootstrap plan without downloads or license acceptance
         shell: pwsh
         run: ./scripts/windows/feagle-android.ps1 bootstrap-tools -DryRun
+      - name: Validate Android Agent source and Gradle wrapper metadata
+        shell: pwsh
+        run: ./scripts/windows/feagle-android.ps1 validate-android-source
       - name: Reject an APK that does not match the reference
         shell: pwsh
         run: |
@@ -31,3 +34,20 @@ jobs:
           }
           Write-Host "Invalid APK rejected as expected"
           exit 0
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: "17"
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build Android Agent
+        working-directory: android
+        run: ./gradlew clean :app:assembleDebug --no-daemon

@@ -29,6 +29,20 @@ Do not submit:
 The project must not silently enable Root, VPN, notification access, module
 scope, or other sensitive Android permissions.
 
+## Android build and Agent safety
+
+- Keep the Gradle Wrapper JAR and distribution SHA-256 pinned to an official
+  Gradle release.
+- Do not commit `local.properties`, Gradle caches, APK outputs, debug
+  keystores, device logs, or Android private application data.
+- Installing or updating the Agent requires explicit user confirmation.
+- The installer must not uninstall an Agent with a different signer to force
+  an update.
+- Module enablement, module scope, notification access, and Bridge credentials
+  remain user-controlled steps.
+- Status checks may report process, package, permission, and redacted log
+  markers, but must not read or print the stored Bridge token.
+
 ## Reporting
 
 Use GitHub private vulnerability reporting or contact the repository owner

@@ -20,6 +20,7 @@
 | Android Command-line Tools | 提供 `sdkmanager` | Google 官方 ZIP，固定版本和 SHA-256 |
 | Android Platform Tools | 提供 `adb.exe` | 由官方 `sdkmanager` 安装 |
 | Android Build Tools 34.0.0 | 提供 `apksigner`、`aapt2` | 由官方 `sdkmanager` 安装 |
+| Android SDK Platform 34 | 编译 Android 14 Agent | 由官方 `sdkmanager` 安装 |
 
 这个过程不需要管理员权限，不写注册表，也不永久修改系统 `PATH` 或
 `JAVA_HOME`。下载缓存和安装结果都位于 `.tools`，并已被 Git 忽略。

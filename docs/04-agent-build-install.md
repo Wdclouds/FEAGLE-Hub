@@ -1,0 +1,102 @@
+# Android Agent 构建、安装与状态检查
+
+[返回 README](../README.md) ·
+[Windows 工具链一键准备](./03-windows-toolchain.md)
+
+## 1. 当前支持范围
+
+首期 Android Agent 只保证：
+
+- 微信 `8.0.70`。
+- 入站私聊文本。
+- 私聊文本回复。
+- Hook → Binder → Agent → WSS 的持久 ACK 与事件去重。
+- 通知读取作为可选兜底，不是主接收链路。
+
+群聊、图片、文件、历史消息读取和其他微信版本暂不属于已验证范围。
+
+## 2. 构建 Agent
+
+先完成工具链准备，然后运行：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 build-agent
+```
+
+向导会：
+
+1. 检查 Android 源码结构和 `8.0.70` 版本门禁。
+2. 校验 Gradle Wrapper JAR 与 Gradle 8.9 分发包 SHA-256。
+3. 清理上次被中断的构建临时目录。
+4. 使用仓库本地 JDK 17 和 Android SDK Platform 34 构建。
+5. 验证生成 APK 的包名与版本，并打印 APK SHA-256。
+6. 在 `.tools/agent-build.json` 保存本机私有构建收据。
+
+输出文件位于：
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+APK 和构建目录均被 Git 忽略，不会进入仓库。
+构建收据只保存包名、版本、SHA-256 和构建时间，不包含设备信息或 Token。
+
+## 3. 安装 Agent
+
+连接并授权一台 Android 设备后运行：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 install-agent `
+  -ConfirmAgentInstall
+```
+
+默认安装上一步生成的 APK，也可以使用 `-AgentApkPath` 指定文件。
+无论使用哪个路径，APK 都必须与最近一次本机 `build-agent` 生成的 SHA-256
+完全一致；不能把任意同包名 APK 交给向导安装。
+
+安装采用原地更新方式，不主动卸载旧 Agent，也不清除 Agent 数据。签名不一致时
+ADB 会拒绝更新，向导不会为了绕过错误而自动卸载。
+
+安装完成后，以下步骤必须由设备所有者手动完成：
+
+1. 在 LSPosed/Vector 中启用 `FEAGLEwxbot Agent`。
+2. 模块作用域只选择微信。
+3. 重启微信。
+4. 打开 Agent，填写 Bridge 的 `wss://` 地址和独立设备 Token。
+5. 点击“保存并启动”。
+6. 只有确实需要通知兜底时，才手动开启通知读取权限。
+
+向导不会静默开启模块、修改作用域、授予通知读取权限或读取设备 Token。
+
+## 4. 检查状态
+
+运行：
+
+```powershell
+.\scripts\windows\feagle-android.ps1 agent-status
+```
+
+状态检查包括：
+
+- 微信是否安装且版本为 `8.0.70`。
+- Agent 是否安装及其版本。
+- Agent 进程与 Bridge 前台服务是否运行。
+- 通知读取兜底是否由用户开启。
+- 最近日志中是否出现 `8.0.70` Hook 适配器加载记录。
+
+最近日志只能证明近期加载过，不等同于当前云端已经连接。云端状态仍以 Agent 页面
+的“Cloud / 云端连接”为准。状态检查不会进入 Agent 私有目录读取 Token。
+
+## 5. 常见恢复方式
+
+如果构建被断电或强制终止，直接重新运行 `build-agent`。向导会先执行 Gradle
+`clean`，避免残留的增量打包目录导致下一次构建失败。
+
+如果没有找到 Hook：
+
+1. 确认微信版本严格为 `8.0.70`。
+2. 确认模块已启用，作用域只选择微信。
+3. 强制停止并重新打开微信。
+4. 再运行 `agent-status`。
+
+不要通过扩大模块作用域、关闭系统安全机制或安装来源不明的模块来“试错”。
