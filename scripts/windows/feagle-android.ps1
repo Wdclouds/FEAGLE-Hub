@@ -352,6 +352,51 @@ function Remove-ToolStagingDirectory {
     }
 }
 
+function New-AndroidCliStagingDirectory {
+    $temporaryRoot = [System.IO.Path]::GetFullPath(
+        [System.IO.Path]::GetTempPath()
+    ).TrimEnd("\")
+
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        $name = "fgc-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+        $candidate = Join-Path $temporaryRoot $name
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            New-Item -ItemType Directory -Path $candidate | Out-Null
+            return $candidate
+        }
+    }
+
+    throw "无法在系统临时目录创建 Android CLI 解压目录"
+}
+
+function Remove-AndroidCliStagingDirectory {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $temporaryRoot = [System.IO.Path]::GetFullPath(
+        [System.IO.Path]::GetTempPath()
+    ).TrimEnd("\")
+    $resolvedTarget = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+    $targetParent = Split-Path $resolvedTarget -Parent
+    $targetName = Split-Path $resolvedTarget -Leaf
+
+    if (
+        -not $targetParent.Equals(
+            $temporaryRoot,
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -or
+        $targetName -notmatch "^fgc-[a-f0-9]{8}$"
+    ) {
+        throw "拒绝清理非 FEAGLE Android CLI 临时目录：$Path"
+    }
+
+    if (Test-Path -LiteralPath $resolvedTarget) {
+        Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
+    }
+}
+
 function Install-LocalJdk {
     param(
         [Parameter(Mandatory)]
@@ -415,13 +460,10 @@ function Install-AndroidCommandLineTools {
         throw "发现不完整的 Android 命令行工具：$target。请检查或手动移走该目录。"
     }
 
-    $stagingParent = Join-Path $ToolsRoot ".staging"
-    if (-not (Test-Path -LiteralPath $stagingParent)) {
-        New-Item -ItemType Directory -Path $stagingParent | Out-Null
-    }
-    $staging = Join-Path $stagingParent (
-        "android-cli-" + [guid]::NewGuid().ToString("N")
-    )
+    # Android CLI contains deeply nested dependency paths. Extracting below the
+    # repository can exceed the Windows PowerShell 5.1 MAX_PATH limit when the
+    # repository itself is located under a long user directory.
+    $staging = New-AndroidCliStagingDirectory
 
     try {
         Expand-Archive -LiteralPath $ArchivePath -DestinationPath $staging
@@ -444,7 +486,7 @@ function Install-AndroidCommandLineTools {
         return $sdkManager
     }
     finally {
-        Remove-ToolStagingDirectory -Path $staging
+        Remove-AndroidCliStagingDirectory -Path $staging
     }
 }
 

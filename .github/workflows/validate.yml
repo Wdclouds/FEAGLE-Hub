@@ -24,6 +24,9 @@ jobs:
       - name: Validate Android Agent source and Gradle wrapper metadata
         shell: pwsh
         run: ./scripts/windows/feagle-android.ps1 validate-android-source
+      - name: Test Android CLI extraction from a long repository path
+        shell: powershell
+        run: ./scripts/windows/test-long-path-bootstrap.ps1
       - name: Reject an APK that does not match the reference
         shell: pwsh
         run: |
