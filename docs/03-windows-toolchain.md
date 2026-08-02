@@ -60,6 +60,10 @@ Android SDK 受 Android SDK License 约束。助手不会静默替用户接受�
 已经完整下载并通过 SHA-256 的压缩包会被复用。已经安装好的 JDK、Android
 命令行工具、ADB 与 Build Tools 也会被复用，因此该命令可以重复执行。
 
+Android 命令行工具包含很深的依赖目录。安装助手会先在系统临时目录的短路径中解压，
+再移动到仓库的 `.tools/android-sdk`，因此仓库位于较长的 Windows 用户目录时也不会触发
+Windows PowerShell 5.1 的传统路径长度限制。
+
 如果提示发现“不完整目录”，助手会停止，不会擅自覆盖。请先检查提示的
 `.tools` 子目录；确认里面没有需要保留的文件后，再手动移走该子目录并重试。
 
