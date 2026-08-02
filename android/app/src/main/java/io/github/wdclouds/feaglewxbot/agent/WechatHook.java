@@ -98,7 +98,7 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 });
     }
 
-    static void capturePrivateTextFields(
+    static void captureTextFields(
             String source,
             int type,
             int isSend,
@@ -106,23 +106,60 @@ public final class WechatHook implements IXposedHookLoadPackage {
             String contentValue,
             long createTime,
             long msgId,
-            long msgSvrId) {
+            long msgSvrId,
+            boolean mentioned) {
         String talker = talkerValue == null ? "" : talkerValue.trim();
         String content = contentValue == null ? "" : contentValue;
-        if (type != 1 || isSend != 0
-                || !validPrivateTalker(talker) || content.isEmpty()) {
+        if (type != 1 || isSend != 0 || content.isEmpty()) {
             return;
         }
 
-        String eventId;
-        if (msgSvrId > 0) {
-            eventId = "wxsvr:" + msgSvrId;
-        } else if (msgId > 0) {
-            eventId = "wxlocal:" + msgId;
-        } else {
-            eventId = "wxfallback:" + createTime + ":"
-                    + Integer.toHexString((talker + "\u0000" + content).hashCode());
+        if (validGroupTalker(talker)) {
+            GroupText parsed = parseGroupText(content);
+            if (parsed == null) {
+                return;
+            }
+            sendCapturedText(
+                    source,
+                    AgentProtocol.MSG_GROUP_TEXT,
+                    eventId(talker, content, createTime, msgId, msgSvrId),
+                    talker,
+                    parsed.sender,
+                    parsed.content,
+                    createTime,
+                    msgId,
+                    msgSvrId,
+                    mentioned);
+            return;
         }
+
+        if (!validPrivateTalker(talker)) {
+            return;
+        }
+        sendCapturedText(
+                source,
+                AgentProtocol.MSG_PRIVATE_TEXT,
+                eventId(talker, content, createTime, msgId, msgSvrId),
+                talker,
+                "",
+                content,
+                createTime,
+                msgId,
+                msgSvrId,
+                false);
+    }
+
+    private static void sendCapturedText(
+            String source,
+            int messageType,
+            String eventId,
+            String talker,
+            String sender,
+            String content,
+            long createTime,
+            long msgId,
+            long msgSvrId,
+            boolean mentioned) {
         synchronized (recentEvents) {
             if (recentEvents.containsKey(eventId)) {
                 return;
@@ -130,20 +167,59 @@ public final class WechatHook implements IXposedHookLoadPackage {
             recentEvents.put(eventId, Boolean.TRUE);
         }
 
-        Message outbound = Message.obtain(null, AgentProtocol.MSG_PRIVATE_TEXT);
+        Message outbound = Message.obtain(null, messageType);
         Bundle data = new Bundle();
         data.putString("event_id", eventId);
         data.putString("talker", talker);
+        data.putString("sender", sender);
         data.putString("content", content);
+        data.putBoolean("mentioned", mentioned);
         data.putLong("create_time", createTime);
         data.putLong("msg_id", msgId);
         data.putLong("msg_svr_id", msgSvrId);
         outbound.setData(data);
         sendToAgent(outbound);
 
-        // Never log private content or the raw account identifier.
-        log("private text captured source=" + source
+        // Never log message content or raw account/group identifiers.
+        log((messageType == AgentProtocol.MSG_GROUP_TEXT ? "group" : "private")
+                + " text captured source=" + source
                 + " length=" + content.length());
+    }
+
+    private static String eventId(
+            String talker, String content, long createTime, long msgId, long msgSvrId) {
+        if (msgSvrId > 0) {
+            return "wxsvr:" + msgSvrId;
+        }
+        if (msgId > 0) {
+            return "wxlocal:" + msgId;
+        }
+        return "wxfallback:" + createTime + ":"
+                + Integer.toHexString((talker + "\u0000" + content).hashCode());
+    }
+
+    private static GroupText parseGroupText(String rawContent) {
+        String normalized = rawContent.replaceAll("(?i)<br\\s*/?>", "\n");
+        int separator = normalized.indexOf(":\n");
+        if (separator <= 0) {
+            return null;
+        }
+        String sender = normalized.substring(0, separator).trim();
+        String content = normalized.substring(separator + 2).trim();
+        if (!validGroupSender(sender) || content.isEmpty()) {
+            return null;
+        }
+        return new GroupText(sender, content);
+    }
+
+    private static final class GroupText {
+        final String sender;
+        final String content;
+
+        GroupText(String sender, String content) {
+            this.sender = sender;
+            this.content = content;
+        }
     }
 
     private static final class HookHandler extends Handler {
@@ -161,7 +237,11 @@ public final class WechatHook implements IXposedHookLoadPackage {
             String commandId = data.getString("command_id", "");
             String talker = data.getString("talker", "").trim();
             String content = data.getString("content", "");
-            if (!validPrivateTalker(talker)
+            String chatType = data.getString("chat_type", "private");
+            boolean validTalker = "group".equals(chatType)
+                    ? validGroupTalker(talker)
+                    : validPrivateTalker(talker);
+            if (!validTalker
                     || content.isEmpty() || content.length() > 2000) {
                 sendCommandResult(commandId, false, "invalid_command");
                 return;
@@ -276,6 +356,21 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 && !lower.equals("fmessage")
                 && !lower.equals("weixin")
                 && lower.length() <= 256;
+    }
+
+    private static boolean validGroupTalker(String talker) {
+        String lower = talker.toLowerCase(Locale.ROOT);
+        return lower.endsWith("@chatroom")
+                && !lower.contains(":")
+                && lower.length() <= 256;
+    }
+
+    private static boolean validGroupSender(String sender) {
+        String normalized = sender.trim();
+        return !normalized.isEmpty()
+                && !normalized.endsWith("@chatroom")
+                && !normalized.contains(":")
+                && normalized.length() <= 256;
     }
 
     private static String installedWechatVersion() {
