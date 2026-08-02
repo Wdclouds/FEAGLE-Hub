@@ -1,7 +1,14 @@
 # FEAGLEwxbot Android Kit
 
+> [!IMPORTANT]
+> **本仓库已经迁移并进入只读归档。** Android Agent、Windows 安装助手、协议定义与服务端 Bridge
+> 已合并到统一仓库 [Wdclouds/FEAGLEwxbot](https://github.com/Wdclouds/FEAGLEwxbot)。
+> 请从新仓库的 [Android 指南](https://github.com/Wdclouds/FEAGLEwxbot/tree/main/docs/android)
+> 开始；代码分别位于 `apps/android-agent`、`tools/windows-android` 与 `packages/protocol`。
+> 本仓库保留历史记录，但不再接收功能更新或问题修复。
+
 FEAGLEwxbot Android Kit 是
-[FEAGLEwxbot Bridge](https://github.com/Wdclouds/FEAGLEwxbot-bridge)
+[FEAGLEwxbot](https://github.com/Wdclouds/FEAGLEwxbot)
 的 Android 设备准备与诊断工具。
 
 它面向零基础用户，目标是把下面的过程变成可检查、可恢复的逐步向导：
