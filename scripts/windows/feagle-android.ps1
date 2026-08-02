@@ -1160,9 +1160,9 @@ function Test-AndroidSource {
             -LiteralPath $wrapperPropertiesPath
         if (
             $wrapperProperties -notmatch
-            "distributionUrl=https\\:.*gradle-8\.9-bin\.zip"
+            "distributionUrl=https\\://mirrors\.cloud\.tencent\.com/gradle/gradle-8\.9-bin\.zip"
         ) {
-            $errors.Add("Gradle Wrapper 必须固定为 8.9 binary distribution")
+            $errors.Add("Gradle Wrapper 必须使用已验证的腾讯云 Gradle 8.9 国内镜像")
         }
         if (
             $wrapperProperties -notmatch
@@ -1172,6 +1172,21 @@ function Test-AndroidSource {
         }
         if ($wrapperProperties -notmatch "validateDistributionUrl=true") {
             $errors.Add("Gradle Wrapper 必须验证 distribution URL")
+        }
+    }
+
+    $settingsPath = Join-Path $androidRoot "settings.gradle"
+    if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+        $settings = Get-Content -Raw -Encoding UTF8 -LiteralPath $settingsPath
+        foreach ($repository in @(
+            "https://maven.aliyun.com/repository/google",
+            "https://maven.aliyun.com/repository/central",
+            "https://maven.aliyun.com/repository/gradle-plugin",
+            "https://maven.aliyun.com/repository/public"
+        )) {
+            if (-not $settings.Contains($repository)) {
+                $errors.Add("Android 依赖仓库缺少国内镜像：$repository")
+            }
         }
     }
 
@@ -1455,6 +1470,8 @@ function Invoke-AgentBuild {
 
         Write-Host "  Java：$env:JAVA_HOME"
         Write-Host "  Android SDK：$sdkRoot"
+        Write-Host "  Gradle：腾讯云国内镜像（固定 SHA-256）"
+        Write-Host "  Maven：阿里云镜像优先，官方仓库自动回退"
         Write-Host "  正在执行 Gradle Debug 构建..."
 
         Push-Location $androidRoot

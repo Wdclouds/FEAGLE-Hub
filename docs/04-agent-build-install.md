@@ -23,6 +23,15 @@
 .\scripts\windows\feagle-android.ps1 build-agent
 ```
 
+默认构建链已针对中国大陆网络做了优化，不要求用户配置代理：
+
+- Gradle 8.9 分发包从腾讯云国内镜像下载，并继续校验官方固定 SHA-256；
+- Android、Maven Central、Gradle Plugin Portal 依赖优先从阿里云镜像解析；
+- Google、Maven Central、Gradle Plugin Portal 与 Xposed 官方仓库仍作为自动回退源。
+
+首次构建需要下载 Gradle 和 Android 依赖，耗时取决于本地网络。下载中断后可直接重新运行
+同一条 `build-agent` 命令，已经完成且通过校验的缓存会被复用。
+
 向导会：
 
 1. 检查 Android 源码结构和 `8.0.70` 版本门禁。
