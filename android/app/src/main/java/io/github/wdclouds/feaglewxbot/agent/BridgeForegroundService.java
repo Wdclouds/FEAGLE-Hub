@@ -153,6 +153,9 @@ public final class BridgeForegroundService extends Service {
                 case AgentProtocol.MSG_PRIVATE_TEXT:
                     forwardPrivateText(message.getData());
                     break;
+                case AgentProtocol.MSG_GROUP_TEXT:
+                    forwardGroupText(message.getData());
+                    break;
                 case AgentProtocol.MSG_COMMAND_RESULT:
                     forwardCommandResult(message.getData());
                     break;
@@ -189,6 +192,46 @@ public final class BridgeForegroundService extends Service {
         put(event, "talker", talker);
         put(event, "displayName", displayName);
         put(event, "content", content);
+        put(event, "createTime", data.getLong("create_time", 0));
+        put(event, "msgId", data.getLong("msg_id", 0));
+        put(event, "msgSvrId", data.getLong("msg_svr_id", 0));
+
+        String payload = event.toString();
+        recentInboundEvents.put(eventId, Boolean.TRUE);
+        pendingEvents.put(eventId, payload);
+        persistReliableState();
+        sendPendingPayload(payload);
+    }
+
+    private void forwardGroupText(Bundle data) {
+        String eventId = data.getString("event_id", "").trim();
+        String talker = data.getString("talker", "").trim();
+        String sender = data.getString("sender", "").trim();
+        String content = data.getString("content", "");
+        if (eventId.isEmpty() || !validGroupTalker(talker)
+                || !validGroupSender(sender)
+                || content.isEmpty() || content.length() > 2_000) {
+            return;
+        }
+
+        String existing = pendingEvents.get(eventId);
+        if (existing != null) {
+            sendPendingPayload(existing);
+            return;
+        }
+        if (recentInboundEvents.containsKey(eventId)) return;
+        if (pendingEvents.size() >= MAX_PENDING_EVENTS) {
+            Log.w(TAG, "Reliable event queue is full");
+            setStatus("待发送队列已满 / pending queue full");
+            return;
+        }
+
+        JSONObject event = baseEnvelope("group_text");
+        put(event, "eventId", eventId);
+        put(event, "talker", talker);
+        put(event, "sender", sender);
+        put(event, "content", content);
+        put(event, "mentioned", data.getBoolean("mentioned", false));
         put(event, "createTime", data.getLong("create_time", 0));
         put(event, "msgId", data.getLong("msg_id", 0));
         put(event, "msgSvrId", data.getLong("msg_svr_id", 0));
@@ -415,12 +458,16 @@ public final class BridgeForegroundService extends Service {
         String commandId = command.optString("commandId");
         String talker = command.optString("talker").trim();
         String content = command.optString("content");
-        if (commandId.isEmpty() || !validPrivateTalker(talker)
+        boolean group = "group".equals(command.optString("chatType"));
+        boolean validTalker = group
+                ? validGroupTalker(talker)
+                : validPrivateTalker(talker);
+        if (commandId.isEmpty() || !validTalker
                 || content.isEmpty() || content.length() > 2_000) {
             sendCommandError(commandId, "invalid_command");
             return;
         }
-        Messenger sender = talker.startsWith("notify:")
+        Messenger sender = !group && talker.startsWith("notify:")
                 ? notificationMessenger
                 : hookMessenger;
         if (sender == null) {
@@ -433,6 +480,7 @@ public final class BridgeForegroundService extends Service {
         data.putString("command_id", commandId);
         data.putString("talker", talker);
         data.putString("content", content);
+        data.putString("chat_type", group ? "group" : "private");
         message.setData(data);
         try {
             sender.send(message);
@@ -650,6 +698,21 @@ public final class BridgeForegroundService extends Service {
                 && (!lower.contains(":")
                         || lower.matches("notify:[0-9a-f]{32}"))
                 && lower.length() <= 256;
+    }
+
+    private boolean validGroupTalker(String talker) {
+        String lower = talker.toLowerCase(Locale.ROOT);
+        return lower.endsWith("@chatroom")
+                && !lower.contains(":")
+                && lower.length() <= 256;
+    }
+
+    private boolean validGroupSender(String sender) {
+        String normalized = sender.trim();
+        return !normalized.isEmpty()
+                && !normalized.endsWith("@chatroom")
+                && !normalized.contains(":")
+                && normalized.length() <= 256;
     }
 
     private boolean senderAvailable() {

@@ -13,7 +13,8 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 
 > [!IMPORTANT]
 > 当前仓库已迁入 Android Agent、8.0.70 Hook 适配器、Windows 构建/安装/状态
-> 检查入口和 Bridge 一次性配对。完整的分段全链路测试仍在建设中。
+> 检查入口和 Bridge 一次性配对。Agent 0.6.0 已加入受控群聊文本收发协议，
+> 仍需在每台真实设备上确认微信提供了明确的 `@` 标记后，Bridge 才会允许群回复。
 
 ## 当前支持基线
 
@@ -135,6 +136,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - 在显式确认后原地安装或升级 Agent，不自动清数据。
 - 检查 Agent、前台服务、通知兜底和最近 Hook 加载状态。
 - 通过 SSH 生成 5 分钟单次配对码，重开 Agent 页面后安全预填到平板。
+- 捕获私聊及群聊文本，并将群会话、群成员、明确 `@` 标记送往 Bridge。
+- 接收 Bridge 的私聊或群聊文本发送命令；群聊仍由 Bridge 白名单与安全闸门控制。
 - 显示下载源与哈希是否已经发布。
 
 当前助手不会：
@@ -164,7 +167,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 - [x] Windows 工具依赖自动准备
 - [x] Android 模块基础状态检查
 - [x] Bridge 一次性配对码
-- [ ] 分段全链路测试
+- [x] 私聊与群聊协议自动化全链路测试
+- [ ] Android 0.6.0 群聊在已验证基线设备上的人工验收
 - [ ] 脱敏诊断包
 
 ## 许可证

@@ -10,7 +10,8 @@ import de.robv.android.xposed.XposedHelpers;
  * Narrow WeChat 8.0.70 adapter.
  *
  * <p>This class deliberately supports one package version and one feature set:
- * inbound private text plus outbound private text. It does not enumerate DEX
+ * inbound/outbound private text plus inbound/outbound group text. Group events
+ * remain fail-closed unless WeChat exposes an explicit mention flag. It does not enumerate DEX
  * classes, read databases, persist chat content, or expose a broadcast/file
  * command channel.</p>
  */
@@ -172,8 +173,10 @@ final class Wechat8070Adapter {
                     message, "field_msgId", "getMsgId", 0L);
             long msgSvrId = longFieldOrMethod(
                     message, "field_msgSvrId", null, 0L);
+            boolean mentioned = booleanFieldOrMethod(
+                    message, "field_isAt", "isAt", false);
 
-            WechatHook.capturePrivateTextFields(
+            WechatHook.captureTextFields(
                     "wechat-8.0.70/" + source,
                     type,
                     isSend,
@@ -181,7 +184,8 @@ final class Wechat8070Adapter {
                     content,
                     createTime,
                     msgId,
-                    msgSvrId);
+                    msgSvrId,
+                    mentioned);
         } catch (Throwable error) {
             WechatHook.logAdapterError("8.0.70 message capture failed", error);
         }
@@ -221,6 +225,18 @@ final class Wechat8070Adapter {
             Object target, String fieldName, String methodName, long fallback) {
         Object value = value(target, fieldName, methodName);
         return value instanceof Number ? ((Number) value).longValue() : fallback;
+    }
+
+    private static boolean booleanFieldOrMethod(
+            Object target, String fieldName, String methodName, boolean fallback) {
+        Object value = value(target, fieldName, methodName);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        return fallback;
     }
 
     private static Object value(Object target, String fieldName, String methodName) {

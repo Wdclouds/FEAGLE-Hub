@@ -6,6 +6,7 @@ final class AgentProtocol {
     static final int MSG_SEND_TEXT = 3;
     static final int MSG_COMMAND_RESULT = 4;
     static final int MSG_REGISTER_NOTIFICATION = 5;
+    static final int MSG_GROUP_TEXT = 6;
 
     static final String PREFS = "agent";
     static final String KEY_ENDPOINT = "endpoint";
