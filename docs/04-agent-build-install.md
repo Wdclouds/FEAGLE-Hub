@@ -27,7 +27,10 @@
 
 - Gradle 8.9 分发包从腾讯云国内镜像下载，并继续校验官方固定 SHA-256；
 - Android、Maven Central、Gradle Plugin Portal 依赖优先从阿里云镜像解析；
-- Google、Maven Central、Gradle Plugin Portal 与 Xposed 官方仓库仍作为自动回退源。
+- GitHub Actions 自动只使用官方依赖仓库，不依赖国内镜像的可用性。
+
+如果本机已配置可访问官方仓库的网络，也可以在当前 PowerShell 窗口中运行
+`$env:FEAGLE_USE_OFFICIAL_REPOS = "1"` 后再执行 `build-agent`，临时跳过阿里云 Maven 镜像。
 
 首次构建需要下载 Gradle 和 Android 依赖，耗时取决于本地网络。下载中断后可直接重新运行
 同一条 `build-agent` 命令，已经完成且通过校验的缓存会被复用。

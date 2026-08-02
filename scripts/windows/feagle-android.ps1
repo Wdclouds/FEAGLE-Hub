@@ -1471,7 +1471,12 @@ function Invoke-AgentBuild {
         Write-Host "  Java：$env:JAVA_HOME"
         Write-Host "  Android SDK：$sdkRoot"
         Write-Host "  Gradle：腾讯云国内镜像（固定 SHA-256）"
-        Write-Host "  Maven：阿里云镜像优先，官方仓库自动回退"
+        if ($env:FEAGLE_USE_OFFICIAL_REPOS -eq "1") {
+            Write-Host "  Maven：仅使用官方仓库（环境变量已启用）"
+        }
+        else {
+            Write-Host "  Maven：阿里云国内镜像优先"
+        }
         Write-Host "  正在执行 Gradle Debug 构建..."
 
         Push-Location $androidRoot

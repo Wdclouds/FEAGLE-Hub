@@ -107,7 +107,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\feagle-android.ps1
 ```
 
 `build-agent` 默认使用腾讯云 Gradle 镜像和阿里云 Maven 镜像，无需网络代理；所有 Gradle
-分发包仍会经过固定 SHA-256 校验，官方依赖仓库保留为自动回退源。详见
+分发包仍会经过固定 SHA-256 校验。GitHub Actions 自动使用官方依赖仓库，避免国内镜像波动
+影响 CI。详见
 [Android Agent 构建、安装与状态检查](./docs/04-agent-build-install.md)。
 
 如果 `adb.exe` 不在 `PATH`，可以指定路径：
