@@ -1,15 +1,24 @@
-# FEAGLEwxbot Android Kit
+# FEAGLE Hub
 
-> [!IMPORTANT]
-> **本仓库已经迁移并进入只读归档。** Android Agent、Windows 安装助手、协议定义与服务端 Bridge
-> 已合并到统一仓库 [Wdclouds/FEAGLEwxbot](https://github.com/Wdclouds/FEAGLEwxbot)。
-> 请从新仓库的 [Android 指南](https://github.com/Wdclouds/FEAGLEwxbot/tree/main/docs/android)
-> 开始；代码分别位于 `apps/android-agent`、`tools/windows-android` 与 `packages/protocol`。
-> 本仓库保留历史记录，但不再接收功能更新或问题修复。
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Wdclouds/FEAGLE-Gateway/main/feaglew.svg" alt="FEAGLE Logo" width="120" height="120" onerror="this.src='https://raw.githubusercontent.com/Wdclouds/FEAGLE-Gateway/main/feagleb.svg'" />
+</p>
 
-FEAGLEwxbot Android Kit 是
-[FEAGLEwxbot](https://github.com/Wdclouds/FEAGLEwxbot)
-的 Android 设备准备与诊断工具。
+<p align="center">
+  <strong>FEAGLE 体系轻量级跨平台控制中枢与 Android 端管理组件 (WeChat & Hermes Agent Control Plane)</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Windows-blue" alt="Platform" />
+  <img src="https://img.shields.io/badge/Hook-LSPosed%20%2F%20Vector-orange" alt="Hook" />
+  <img src="https://img.shields.io/badge/WeChat-8.0.70%20%7C%208.0.78-green" alt="WeChat" />
+  <img src="https://img.shields.io/badge/Integration-Hermes%20Agent-purple" alt="Integration" />
+  <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License" />
+</p>
+
+---
+
+FEAGLE Hub 是 FEAGLE 微信生态体系中面向终端的设备自动化、诊断与运维管理套件。
 
 它面向零基础用户，目标是把下面的过程变成可检查、可恢复的逐步向导：
 
@@ -22,6 +31,28 @@ ADB → 设备与 Root 检查 → 微信版本与签名检查
 > 当前仓库已迁入 Android Agent、8.0.70 Hook 适配器、Windows 构建/安装/状态
 > 检查入口和 Bridge 一次性配对。Agent 0.6.0 已加入受控群聊文本收发协议，
 > 仍需在每台真实设备上确认微信提供了明确的 `@` 标记后，Bridge 才会允许群回复。
+
+## 架构与生态定位
+
+FEAGLE 体系采用端云协同与分层解耦架构：
+
+- **[FEAGLE Hub](https://github.com/Wdclouds/FEAGLE-Hub)**（本仓库）：负责 Android 端 Agent 运行管理、设备环境与签名合规性检查（Doctor）、Windows 自动化运维工具链，以及终端安全闸门。
+- **[FEAGLE-Gateway](https://github.com/Wdclouds/FEAGLE-Gateway)**：高吞吐服务端/云端网关，提供 OneBot v11 标准反向 WebSocket 桥接与多协议转接，直连 AstrBot / Hermes Agent。
+- **Hermes Agent & AstrBot**：智能决策大脑与上层业务处理。
+
+```text
++-----------------------+          +-----------------------+          +-----------------------+
+|    Android 端 (平板)   |  双向通道 |    FEAGLE-Gateway     |  反向 WS  |     上层 Agent / Bot  |
+|  WeChat + LSPosed     | <======> |    (Cloud / Server)   | <======> |  Hermes Agent /       |
+|  FEAGLE Android Agent |          |  OneBot v11 Gateway   |          |  AstrBot Framework    |
++-----------------------+          +-----------------------+          +-----------------------+
+           ^
+           | (配对 / 状态诊断 / 安装引导)
++-----------------------+
+|  FEAGLE Hub 工具链     |
+|  (Windows PowerShell) |
++-----------------------+
+```
 
 ## 当前支持基线
 
