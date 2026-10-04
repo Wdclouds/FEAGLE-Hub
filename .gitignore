@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+web/node_modules/
+
+# Runtime data and sqlite
+data/
+*.sqlite
+*.sqlite-*
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+dist/
+web/dist/
+target/
+src-tauri/target/
+
+# Logs
+*.log
+npm-debug.log*
+
+# System
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
